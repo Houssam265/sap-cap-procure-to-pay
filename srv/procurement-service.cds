@@ -18,13 +18,18 @@ service ProcurementService {
     quantity : Integer;
   }
 
+  @readonly
   entity PurchaseOrders as projection on pt.PurchaseOrders actions {
     action receive(items : array of ReceiptItemInput) returns GoodsReceipts;
   };
 
+  @readonly
   entity PurchaseOrderItems as projection on pt.PurchaseOrderItems;
 
+  @readonly
   entity GoodsReceipts as projection on pt.GoodsReceipts;
+
+  @readonly
   entity GoodsReceiptItems as projection on pt.GoodsReceiptItems;
 
   @readonly

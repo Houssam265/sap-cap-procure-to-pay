@@ -2,10 +2,12 @@ import cds from '@sap/cds';
 
 /**
  * Service ProcurementService - Gestion du cycle Procure-to-Pay
+ * Étape 2 : Validations et règles métier
  */
 export default class ProcurementService extends cds.ApplicationService {
   async init() {
     const {
+      Suppliers,
       Products,
       PurchaseRequests,
       PurchaseRequestItems,
@@ -16,7 +18,7 @@ export default class ProcurementService extends cds.ApplicationService {
       StockMovements
     } = this.entities;
 
-    // Helper pour générer des identifiants lisibles séquentiels (PR-1001, PO-1001, GR-1001)
+    // Helper pour générer des identifiants séquentiels lisibles (PR-1001, PO-1001, GR-1001)
     async function getNextNumber(entity, prefix) {
       const rows = await SELECT.from(entity).columns('number');
       let max = 1000;
@@ -37,8 +39,11 @@ export default class ProcurementService extends cds.ApplicationService {
       await UPDATE(PurchaseRequests, requestId).set({ totalAmount: total });
     }
 
-    // --- PRODUITS ---
-    // Calcul de l'indicateur stock bas (lowStock)
+    // =========================================================================
+    // 1. RÈGLES MÉTIER & VALIDATIONS SUR LES PRODUITS ET FOURNISSEURS
+    // =========================================================================
+
+    // Calcul dynamique de l'indicateur stock bas (lowStock)
     this.after('READ', 'Products', (each) => {
       if (!each) return;
       const list = Array.isArray(each) ? each : [each];
@@ -49,8 +54,54 @@ export default class ProcurementService extends cds.ApplicationService {
       }
     });
 
-    // --- DEMANDES D'ACHAT (PurchaseRequests) ---
-    // Initialisation automatique du numéro et statut DRAFT lors de la création
+    // Interdire la suppression d'un produit référencé dans des demandes, commandes ou mouvements
+    this.before('DELETE', 'Products', async (req) => {
+      const prodId = req.data?.ID || req.params[0]?.ID || req.params[0];
+      if (!prodId) return;
+
+      const prod = await SELECT.one.from(Products).where({ ID: prodId });
+      if (!prod) return;
+
+      const [hasMovements, hasPoItems, hasPrItems] = await Promise.all([
+        SELECT.one.from(StockMovements).where({ product_ID: prodId }),
+        SELECT.one.from(PurchaseOrderItems).where({ product_ID: prodId }),
+        SELECT.one.from(PurchaseRequestItems).where({ product_ID: prodId })
+      ]);
+
+      if (hasMovements || hasPoItems || hasPrItems) {
+        req.reject(
+          409,
+          `Impossible de supprimer le produit '${prod.name}' (${prod.code}) : des demandes, commandes ou mouvements de stock y font référence.`
+        );
+      }
+    });
+
+    // Interdire la suppression d'un fournisseur référencé dans des produits ou commandes
+    this.before('DELETE', 'Suppliers', async (req) => {
+      const supplierId = req.data?.ID || req.params[0]?.ID || req.params[0];
+      if (!supplierId) return;
+
+      const supplier = await SELECT.one.from(Suppliers).where({ ID: supplierId });
+      if (!supplier) return;
+
+      const [hasProducts, hasOrders] = await Promise.all([
+        SELECT.one.from(Products).where({ supplier_ID: supplierId }),
+        SELECT.one.from(PurchaseOrders).where({ supplier_ID: supplierId })
+      ]);
+
+      if (hasProducts || hasOrders) {
+        req.reject(
+          409,
+          `Impossible de supprimer le fournisseur '${supplier.name}' : des produits ou commandes d'achat y font référence.`
+        );
+      }
+    });
+
+    // =========================================================================
+    // 2. RÈGLES MÉTIER SUR LES DEMANDES D'ACHAT (PurchaseRequests)
+    // =========================================================================
+
+    // Création initiale : numéro, devise MAD, statut DRAFT et total
     this.before('CREATE', 'PurchaseRequests', async (req) => {
       if (!req.data.number) {
         req.data.number = await getNextNumber(PurchaseRequests, 'PR');
@@ -58,10 +109,14 @@ export default class ProcurementService extends cds.ApplicationService {
       if (!req.data.status) {
         req.data.status = 'DRAFT';
       }
-      // Calcul du total si des items sont fournis directement
+      if (!req.data.currency) {
+        req.data.currency = 'MAD';
+      }
+
       if (req.data.items && Array.isArray(req.data.items)) {
         let total = 0;
         for (const item of req.data.items) {
+          if (!item.currency) item.currency = 'MAD';
           if (!item.price && item.product_ID) {
             const prod = await SELECT.one.from(Products).where({ ID: item.product_ID });
             if (prod) item.price = prod.price;
@@ -69,6 +124,41 @@ export default class ProcurementService extends cds.ApplicationService {
           total += (Number(item.quantity) || 0) * (Number(item.price) || 0);
         }
         req.data.totalAmount = total;
+      }
+    });
+
+    // Interdire la modification ou suppression d'une demande qui n'est plus en DRAFT
+    this.before(['UPDATE', 'DELETE'], 'PurchaseRequests', async (req) => {
+      const prId = req.data?.ID || req.params[0]?.ID || req.params[0];
+      if (!prId) return;
+
+      const pr = await SELECT.one.from(PurchaseRequests).where({ ID: prId });
+      if (pr && pr.status !== 'DRAFT') {
+        req.reject(
+          409,
+          `Impossible de modifier ou supprimer la demande '${pr.number}' : son statut est '${pr.status}'. Seules les demandes 'DRAFT' peuvent être modifiées ou supprimées.`
+        );
+      }
+    });
+
+    // Interdire la modification/création/suppression d'articles sur une demande non DRAFT
+    this.before(['CREATE', 'UPDATE', 'DELETE'], 'PurchaseRequestItems', async (req) => {
+      let requestId = req.data?.request_ID || req.data?.request;
+      if (!requestId) {
+        const itemId = req.data?.ID || req.params[0]?.ID || req.params[0];
+        if (itemId) {
+          const existingItem = await SELECT.one.from(PurchaseRequestItems).where({ ID: itemId });
+          requestId = existingItem?.request_ID;
+        }
+      }
+      if (requestId) {
+        const pr = await SELECT.one.from(PurchaseRequests).where({ ID: requestId });
+        if (pr && pr.status !== 'DRAFT') {
+          req.reject(
+            409,
+            `Impossible de modifier les articles de la demande '${pr.number}' : son statut est '${pr.status}'. Seules les demandes 'DRAFT' peuvent être modifiées.`
+          );
+        }
       }
     });
 
@@ -87,7 +177,10 @@ export default class ProcurementService extends cds.ApplicationService {
       if (!pr) return req.reject(404, "Demande d'achat introuvable.");
 
       if (pr.status !== 'DRAFT') {
-        return req.reject(409, `Impossible de soumettre la demande '${pr.number}' : son statut actuel est '${pr.status}'. Seules les demandes 'DRAFT' peuvent être soumises.`);
+        return req.reject(
+          409,
+          `Impossible de soumettre la demande '${pr.number}' : son statut actuel est '${pr.status}'. Seules les demandes 'DRAFT' peuvent être soumises.`
+        );
       }
 
       await UPDATE(PurchaseRequests, prId).set({ status: 'SUBMITTED' });
@@ -101,7 +194,10 @@ export default class ProcurementService extends cds.ApplicationService {
       if (!pr) return req.reject(404, "Demande d'achat introuvable.");
 
       if (pr.status !== 'SUBMITTED') {
-        return req.reject(409, `Impossible d'approuver la demande '${pr.number}' : son statut actuel est '${pr.status}'. Seules les demandes 'SUBMITTED' peuvent être approuvées.`);
+        return req.reject(
+          409,
+          `Impossible d'approuver la demande '${pr.number}' : son statut actuel est '${pr.status}'. Seules les demandes 'SUBMITTED' peuvent être approuvées.`
+        );
       }
 
       await UPDATE(PurchaseRequests, prId).set({ status: 'APPROVED' });
@@ -115,7 +211,10 @@ export default class ProcurementService extends cds.ApplicationService {
       if (!pr) return req.reject(404, "Demande d'achat introuvable.");
 
       if (pr.status !== 'SUBMITTED') {
-        return req.reject(409, `Impossible de refuser la demande '${pr.number}' : son statut actuel est '${pr.status}'. Seules les demandes 'SUBMITTED' peuvent être refusées.`);
+        return req.reject(
+          409,
+          `Impossible de refuser la demande '${pr.number}' : son statut actuel est '${pr.status}'. Seules les demandes 'SUBMITTED' peuvent être refusées.`
+        );
       }
 
       await UPDATE(PurchaseRequests, prId).set({ status: 'REJECTED' });
@@ -129,13 +228,19 @@ export default class ProcurementService extends cds.ApplicationService {
       if (!pr) return req.reject(404, "Demande d'achat introuvable.");
 
       if (pr.status !== 'APPROVED') {
-        return req.reject(409, `Impossible de créer une commande : la demande d'achat '${pr.number}' n'est pas approuvée (statut actuel : '${pr.status}').`);
+        return req.reject(
+          409,
+          `Impossible de créer une commande : la demande d'achat '${pr.number}' n'est pas approuvée (statut actuel : '${pr.status}').`
+        );
       }
 
       // Vérifier si des commandes existent déjà pour cette demande
       const existingOrders = await SELECT.from(PurchaseOrders).where({ request_ID: prId });
       if (existingOrders.length > 0) {
-        return req.reject(409, `Une ou plusieurs commandes d'achat ont déjà été créées pour la demande '${pr.number}'.`);
+        return req.reject(
+          409,
+          `Une ou plusieurs commandes d'achat ont déjà été créées pour la demande '${pr.number}'.`
+        );
       }
 
       const items = await SELECT.from(PurchaseRequestItems).where({ request_ID: prId });
@@ -162,6 +267,7 @@ export default class ProcurementService extends cds.ApplicationService {
           product_ID: prod.ID,
           quantity: item.quantity,
           price: item.price ?? prod.price,
+          currency: 'MAD',
           receivedQuantity: 0
         });
       }
@@ -179,7 +285,8 @@ export default class ProcurementService extends cds.ApplicationService {
           request_ID: prId,
           supplier_ID: supplierId,
           status: 'OPEN',
-          totalAmount: totalAmount
+          totalAmount: totalAmount,
+          currency: 'MAD'
         });
 
         for (const it of orderItems) {
@@ -189,7 +296,8 @@ export default class ProcurementService extends cds.ApplicationService {
             product_ID: it.product_ID,
             quantity: it.quantity,
             receivedQuantity: 0,
-            price: it.price
+            price: it.price,
+            currency: 'MAD'
           });
         }
 
@@ -200,7 +308,10 @@ export default class ProcurementService extends cds.ApplicationService {
       return createdOrders;
     });
 
-    // --- COMMANDES ET RÉCEPTIONS (PurchaseOrders & GoodsReceipts) ---
+    // =========================================================================
+    // 3. ACTIONS DE RÉCEPTION ET MISE À JOUR ATOMIQUE DU STOCK
+    // =========================================================================
+
     // Action : Réceptionner des articles d'une commande
     this.on('receive', 'PurchaseOrders', async (req) => {
       const poId = req.params[0]?.ID || req.params[0] || (await SELECT.one.from(req.subject))?.ID;
@@ -277,7 +388,7 @@ export default class ProcurementService extends cds.ApplicationService {
         postingDate: postingDate
       });
 
-      // Traitement de chaque ligne reçue
+      // Traitement atomique de chaque ligne reçue
       for (const line of linesToReceive) {
         const oi = line.orderItem;
         const qty = line.quantity;
@@ -291,13 +402,12 @@ export default class ProcurementService extends cds.ApplicationService {
           quantity: qty
         });
 
-        // 2. Mise à jour de la quantité reçue sur la ligne de commande
-        const newReceivedQty = (oi.receivedQuantity || 0) + qty;
-        await UPDATE(PurchaseOrderItems, oi.ID).set({
-          receivedQuantity: newReceivedQty
+        // 2. Mise à jour de la quantité reçue sur la commande (SET receivedQuantity = receivedQuantity + qty)
+        await UPDATE(PurchaseOrderItems, oi.ID).with({
+          receivedQuantity: { '+=': qty }
         });
 
-        // 3. Incrémentation du stock physique du produit
+        // 3. Mise à jour ATOMIQUE du stock produit (UPDATE Products SET stock = stock + qty)
         await UPDATE(Products, oi.product_ID).with({
           stock: { '+=': qty }
         });
