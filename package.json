@@ -11,5 +11,49 @@
   "scripts": {
     "start": "cds-serve"
   },
-  "private": true
+  "private": true,
+  "cds": {
+    "requires": {
+      "auth": {
+        "kind": "mocked",
+        "users": {
+          "alice": {
+            "password": "alice",
+            "roles": [
+              "Requester"
+            ]
+          },
+          "bob": {
+            "password": "bob",
+            "roles": [
+              "Manager"
+            ]
+          },
+          "carol": {
+            "password": "carol",
+            "roles": [
+              "Warehouse"
+            ]
+          },
+          "admin": {
+            "password": "admin",
+            "roles": [
+              "Admin"
+            ]
+          },
+          "dave": {
+            "password": "dave",
+            "roles": [
+              "Requester"
+            ]
+          }
+        }
+      },
+      "[production]": {
+        "auth": {
+          "kind": "xsuaa"
+        }
+      }
+    }
+  }
 }

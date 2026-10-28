@@ -2,7 +2,7 @@ import cds from '@sap/cds';
 
 /**
  * Service ProcurementService - Gestion du cycle Procure-to-Pay
- * Étape 2 : Validations et règles métier
+ * Étape 3 : Authentification et gestion des rôles
  */
 export default class ProcurementService extends cds.ApplicationService {
   async init() {
@@ -40,7 +40,7 @@ export default class ProcurementService extends cds.ApplicationService {
     }
 
     // =========================================================================
-    // 1. RÈGLES MÉTIER & VALIDATIONS SUR LES PRODUITS ET FOURNISSEURS
+    // 1. RÈGLES MÉTIER SUR LES PRODUITS ET FOURNISSEURS
     // =========================================================================
 
     // Calcul dynamique de l'indicateur stock bas (lowStock)
@@ -127,13 +127,23 @@ export default class ProcurementService extends cds.ApplicationService {
       }
     });
 
-    // Interdire la modification ou suppression d'une demande qui n'est plus en DRAFT
+    // Interdire la modification ou suppression d'une demande par un autre utilisateur ou non DRAFT
     this.before(['UPDATE', 'DELETE'], 'PurchaseRequests', async (req) => {
       const prId = req.data?.ID || req.params[0]?.ID || req.params[0];
       if (!prId) return;
 
       const pr = await SELECT.one.from(PurchaseRequests).where({ ID: prId });
-      if (pr && pr.status !== 'DRAFT') {
+      if (!pr) return;
+
+      // Contrôle de propriété de la demande d'achat
+      if (pr.createdBy && pr.createdBy !== req.user.id && !req.user.is('Manager') && !req.user.is('Admin')) {
+        return req.reject(
+          403,
+          "Vous n'avez pas l'autorisation de modifier ou supprimer la demande d'achat d'un autre utilisateur."
+        );
+      }
+
+      if (pr.status !== 'DRAFT') {
         req.reject(
           409,
           `Impossible de modifier ou supprimer la demande '${pr.number}' : son statut est '${pr.status}'. Seules les demandes 'DRAFT' peuvent être modifiées ou supprimées.`
@@ -175,6 +185,11 @@ export default class ProcurementService extends cds.ApplicationService {
       const prId = req.params[0]?.ID || req.params[0] || (await SELECT.one.from(req.subject))?.ID;
       const pr = await SELECT.one.from(PurchaseRequests).where({ ID: prId });
       if (!pr) return req.reject(404, "Demande d'achat introuvable.");
+
+      // Seul l'auteur (ou Manager/Admin) peut soumettre la demande
+      if (pr.createdBy && pr.createdBy !== req.user.id && !req.user.is('Manager') && !req.user.is('Admin')) {
+        return req.reject(403, "Vous ne pouvez soumettre que vos propres demandes d'achat.");
+      }
 
       if (pr.status !== 'DRAFT') {
         return req.reject(
