@@ -1,0 +1,158 @@
+<mvc:View
+    controllerName="purchaserequests.ext.controller.Create"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.ui.layout.form"
+    xmlns:core="sap.ui.core"
+    height="100%">
+    <Page
+        id="createPurchaseRequestPage"
+        title="Créer une Demande d'Achat"
+        showNavButton="true"
+        navButtonPress="onCancel"
+        busy="{viewModel>/busy}">
+        <headerContent>
+            <Button
+                text="Retour à la liste"
+                icon="sap-icon://nav-back"
+                press="onCancel" />
+        </headerContent>
+        <content>
+            <VBox class="sapUiResponsiveContentPadding">
+                <!-- 1. En-tête : Informations Générales de la Demande -->
+                <Panel
+                    headerText="Informations Générales"
+                    expandable="false"
+                    expanded="true"
+                    class="sapUiNoContentPadding sapUiSmallMarginBottom">
+                    <f:SimpleForm
+                        editable="true"
+                        layout="ResponsiveGridLayout"
+                        labelSpanXL="3"
+                        labelSpanL="3"
+                        labelSpanM="4"
+                        labelSpanS="12"
+                        adjustLabelSpan="false"
+                        emptySpanXL="1"
+                        emptySpanL="1"
+                        emptySpanM="0"
+                        emptySpanS="0"
+                        columnsXL="1"
+                        columnsL="1"
+                        columnsM="1"
+                        singleContainerFullSize="false">
+                        <f:content>
+                            <Label text="Description de la demande" required="true" />
+                            <Input
+                                id="inputDescription"
+                                value="{viewModel>/description}"
+                                placeholder="Ex: Demande de matériel informatique et fournitures..."
+                                maxLength="200"
+                                width="100%" />
+
+                            <Label text="Devise" />
+                            <Text text="MAD (Dirham Marocain)" />
+
+                            <Label text="Statut initial" />
+                            <ObjectStatus text="Brouillon (DRAFT)" state="None" />
+                        </f:content>
+                    </f:SimpleForm>
+                </Panel>
+
+                <!-- 2. Lignes d'articles de la Demande -->
+                <Panel
+                    expandable="false"
+                    expanded="true"
+                    class="sapUiNoContentPadding">
+                    <headerToolbar>
+                        <OverflowToolbar>
+                            <Title text="Articles demandés ({= ${viewModel>/items}.length })" level="H2" />
+                            <ToolbarSpacer />
+                            <Button
+                                id="btnAddItem"
+                                text="Ajouter un article"
+                                icon="sap-icon://add"
+                                type="Emphasized"
+                                press="onAddItem" />
+                        </OverflowToolbar>
+                    </headerToolbar>
+                    <Table
+                        id="itemsTable"
+                        items="{viewModel>/items}"
+                        noDataText="Aucun article sélectionné. Cliquez sur 'Ajouter un article' pour ajouter des lignes."
+                        growing="false">
+                        <columns>
+                            <Column width="40%">
+                                <Text text="Produit (Désignation / Code)" />
+                            </Column>
+                            <Column width="15%" hAlign="End">
+                                <Text text="Prix Unitaire" />
+                            </Column>
+                            <Column width="15%" hAlign="End">
+                                <Text text="Stock Dispo" />
+                            </Column>
+                            <Column width="15%" hAlign="Center">
+                                <Text text="Quantité" />
+                            </Column>
+                            <Column width="15%" hAlign="End">
+                                <Text text="Sous-Total" />
+                            </Column>
+                            <Column width="60px" hAlign="Center">
+                                <Text text="" />
+                            </Column>
+                        </columns>
+                        <items>
+                            <ColumnListItem>
+                                <cells>
+                                    <ComboBox
+                                        selectedKey="{viewModel>product_ID}"
+                                        items="{path: 'viewModel>/products', templateShareable: false}"
+                                        placeholder="Sélectionner un produit..."
+                                        selectionChange="onProductChange"
+                                        width="100%">
+                                        <core:Item
+                                            key="{viewModel>ID}"
+                                            text="{viewModel>name} ({viewModel>code})" />
+                                    </ComboBox>
+                                    <Text text="{= ${viewModel>price} !== undefined ? ${viewModel>price} + ' MAD' : '-' }" />
+                                    <Text text="{= ${viewModel>stock} !== undefined ? ${viewModel>stock} + ' PCS' : '-' }" />
+                                    <StepInput
+                                        value="{viewModel>quantity}"
+                                        min="1"
+                                        max="99999999"
+                                        width="120px"
+                                        change="onQuantityChange" />
+                                    <Text text="{= (${viewModel>price} !== undefined &amp;&amp; ${viewModel>quantity}) ? (${viewModel>price} * ${viewModel>quantity}).toFixed(2) + ' MAD' : '-' }" />
+                                    <Button
+                                        icon="sap-icon://delete"
+                                        type="Transparent"
+                                        press="onDeleteItem"
+                                        tooltip="Supprimer cet article" />
+                                </cells>
+                            </ColumnListItem>
+                        </items>
+                    </Table>
+                </Panel>
+            </VBox>
+        </content>
+        <footer>
+            <OverflowToolbar>
+                <Title
+                    text="Montant Total Estimé : {viewModel>/totalEstimated} MAD"
+                    level="H3"
+                    class="sapUiSmallMarginBegin" />
+                <ToolbarSpacer />
+                <Button
+                    id="btnSaveRequest"
+                    text="Créer la demande"
+                    icon="sap-icon://save"
+                    type="Emphasized"
+                    press="onSave" />
+                <Button
+                    text="Annuler"
+                    type="Transparent"
+                    press="onCancel" />
+            </OverflowToolbar>
+        </footer>
+    </Page>
+</mvc:View>

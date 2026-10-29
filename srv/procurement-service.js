@@ -2,7 +2,7 @@ import cds from '@sap/cds';
 
 /**
  * Service ProcurementService - Gestion du cycle Procure-to-Pay
- * Étape 3 : Authentification et gestion des rôles
+ * Étape 4 : Flux utilisateur complet, boîtes de dialogue et messages i18n
  */
 export default class ProcurementService extends cds.ApplicationService {
   async init() {
@@ -43,7 +43,7 @@ export default class ProcurementService extends cds.ApplicationService {
     // 1. RÈGLES MÉTIER SUR LES PRODUITS ET FOURNISSEURS
     // =========================================================================
 
-    // Calcul dynamique de l'indicateur stock bas (lowStock)
+    // Calcul dynamique de l'indicateur stock bas (lowStock) et criticité UI
     this.after('READ', 'Products', (each) => {
       if (!each) return;
       const list = Array.isArray(each) ? each : [each];
@@ -51,6 +51,98 @@ export default class ProcurementService extends cds.ApplicationService {
         if (p && typeof p.stock === 'number' && typeof p.minStock === 'number') {
           p.lowStock = p.stock < p.minStock;
         }
+        p.lowStockCriticality = p.lowStock ? 1 : 3;
+      }
+    });
+
+    // Criticité UI pour le statut et contrôle d'accès dynamique aux boutons (statut & rôle)
+    this.after('READ', 'PurchaseRequests', async (each, req) => {
+      if (!each) return;
+      const list = Array.isArray(each) ? each : [each];
+      const isManager = Boolean(req.user?.is('Manager') || req.user?.is('Admin'));
+      const isRequester = Boolean(req.user?.is('Requester') || req.user?.is('Admin'));
+      const userId = req.user?.id;
+
+      // Détecter si des commandes existent déjà pour ces demandes
+      const prIds = list.map((p) => p.ID).filter(Boolean);
+      let existingOrderMap = new Set();
+      if (prIds.length > 0) {
+        const orders = await SELECT.from(PurchaseOrders).columns('request_ID').where({ request_ID: { in: prIds } });
+        existingOrderMap = new Set(orders.map((o) => o.request_ID));
+      }
+
+      for (const pr of list) {
+        if (!pr) continue;
+        switch (pr.status) {
+          case 'DRAFT':
+            pr.statusCriticality = 0;
+            pr.statusText = 'Brouillon';
+            break;
+          case 'SUBMITTED':
+            pr.statusCriticality = 2;
+            pr.statusText = 'Soumise';
+            break;
+          case 'APPROVED':
+            pr.statusCriticality = 3;
+            pr.statusText = 'Approuvée';
+            break;
+          case 'REJECTED':
+            pr.statusCriticality = 1;
+            pr.statusText = 'Refusée';
+            break;
+          default:
+            pr.statusCriticality = 0;
+            pr.statusText = pr.status;
+        }
+
+        const isOwner = !pr.createdBy || pr.createdBy === userId || isManager;
+        const hasOrders = existingOrderMap.has(pr.ID);
+
+        // Disponibilité d'action (@Core.OperationAvailable)
+        pr.isSubmitAllowed = Boolean(isRequester && pr.status === 'DRAFT' && isOwner);
+        pr.isApproveAllowed = Boolean(isManager && pr.status === 'SUBMITTED');
+        pr.isDeclineAllowed = Boolean(isManager && pr.status === 'SUBMITTED');
+        pr.isPoCreationAllowed = Boolean(isManager && pr.status === 'APPROVED' && !hasOrders);
+
+        // Masquage selon le rôle (@UI.Hidden)
+        pr.isSubmitHidden = Boolean(!isRequester);
+        pr.isManagerActionHidden = Boolean(!isManager);
+        pr.isRejectionReasonHidden = Boolean(pr.status !== 'REJECTED' || !pr.rejectionReason);
+      }
+    });
+
+    // Criticité UI et libellés français pour le statut des commandes d'achat
+    this.after('READ', 'PurchaseOrders', (each, req) => {
+      if (!each) return;
+      const list = Array.isArray(each) ? each : [each];
+      const isWarehouse = Boolean(req.user?.is('Warehouse') || req.user?.is('Admin'));
+
+      for (const po of list) {
+        if (!po) continue;
+        switch (po.status) {
+          case 'OPEN':
+            po.statusCriticality = 5;
+            po.statusText = 'Ouverte';
+            break;
+          case 'PARTIALLY_RECEIVED':
+            po.statusCriticality = 2;
+            po.statusText = 'Partiellement reçue';
+            break;
+          case 'RECEIVED':
+            po.statusCriticality = 3;
+            po.statusText = 'Reçue';
+            break;
+          case 'CANCELLED':
+            po.statusCriticality = 1;
+            po.statusText = 'Annulée';
+            break;
+          default:
+            po.statusCriticality = 0;
+            po.statusText = po.status;
+        }
+
+        po.isReceiveAllowed = Boolean(isWarehouse && (po.status === 'OPEN' || po.status === 'PARTIALLY_RECEIVED'));
+        po.isWarehouseActionHidden = Boolean(!isWarehouse);
       }
     });
 
@@ -69,10 +161,7 @@ export default class ProcurementService extends cds.ApplicationService {
       ]);
 
       if (hasMovements || hasPoItems || hasPrItems) {
-        req.reject(
-          409,
-          `Impossible de supprimer le produit '${prod.name}' (${prod.code}) : des demandes, commandes ou mouvements de stock y font référence.`
-        );
+        req.reject(409, 'ERR_409_PRODUCT_IN_USE', [prod.name]);
       }
     });
 
@@ -90,10 +179,7 @@ export default class ProcurementService extends cds.ApplicationService {
       ]);
 
       if (hasProducts || hasOrders) {
-        req.reject(
-          409,
-          `Impossible de supprimer le fournisseur '${supplier.name}' : des produits ou commandes d'achat y font référence.`
-        );
+        req.reject(409, 'ERR_409_SUPPLIER_IN_USE', [supplier.name]);
       }
     });
 
@@ -103,6 +189,23 @@ export default class ProcurementService extends cds.ApplicationService {
 
     // Création initiale : numéro, devise MAD, statut DRAFT et total
     this.before('CREATE', 'PurchaseRequests', async (req) => {
+      if (!req.data.description || !req.data.description.trim()) {
+        return req.reject(400, 'ERR_400_DESC_REQUIRED');
+      }
+
+      if (!req.data.items || !Array.isArray(req.data.items) || req.data.items.length === 0) {
+        return req.reject(400, 'ERR_400_ITEMS_REQUIRED');
+      }
+
+      for (const item of req.data.items) {
+        if (!item.product_ID) {
+          return req.reject(400, 'ERR_400_PROD_NOT_FOUND');
+        }
+        if (item.quantity !== undefined && (isNaN(Number(item.quantity)) || Number(item.quantity) <= 0)) {
+          return req.reject(400, 'ERR_400_QTY_POSITIVE');
+        }
+      }
+
       if (!req.data.number) {
         req.data.number = await getNextNumber(PurchaseRequests, 'PR');
       }
@@ -113,18 +216,16 @@ export default class ProcurementService extends cds.ApplicationService {
         req.data.currency = 'MAD';
       }
 
-      if (req.data.items && Array.isArray(req.data.items)) {
-        let total = 0;
-        for (const item of req.data.items) {
-          if (!item.currency) item.currency = 'MAD';
-          if (!item.price && item.product_ID) {
-            const prod = await SELECT.one.from(Products).where({ ID: item.product_ID });
-            if (prod) item.price = prod.price;
-          }
-          total += (Number(item.quantity) || 0) * (Number(item.price) || 0);
+      let total = 0;
+      for (const item of req.data.items) {
+        if (!item.currency) item.currency = 'MAD';
+        if (!item.price && item.product_ID) {
+          const prod = await SELECT.one.from(Products).where({ ID: item.product_ID });
+          if (prod) item.price = prod.price;
         }
-        req.data.totalAmount = total;
+        total += (Number(item.quantity) || 0) * (Number(item.price) || 0);
       }
+      req.data.totalAmount = total;
     });
 
     // Interdire la modification ou suppression d'une demande par un autre utilisateur ou non DRAFT
@@ -137,17 +238,11 @@ export default class ProcurementService extends cds.ApplicationService {
 
       // Contrôle de propriété de la demande d'achat
       if (pr.createdBy && pr.createdBy !== req.user.id && !req.user.is('Manager') && !req.user.is('Admin')) {
-        return req.reject(
-          403,
-          "Vous n'avez pas l'autorisation de modifier ou supprimer la demande d'achat d'un autre utilisateur."
-        );
+        return req.reject(403, 'ERR_403_OWN_REQUESTS_ONLY');
       }
 
       if (pr.status !== 'DRAFT') {
-        req.reject(
-          409,
-          `Impossible de modifier ou supprimer la demande '${pr.number}' : son statut est '${pr.status}'. Seules les demandes 'DRAFT' peuvent être modifiées ou supprimées.`
-        );
+        req.reject(409, 'ERR_409_PR_LOCKED', [pr.number]);
       }
     });
 
@@ -164,10 +259,7 @@ export default class ProcurementService extends cds.ApplicationService {
       if (requestId) {
         const pr = await SELECT.one.from(PurchaseRequests).where({ ID: requestId });
         if (pr && pr.status !== 'DRAFT') {
-          req.reject(
-            409,
-            `Impossible de modifier les articles de la demande '${pr.number}' : son statut est '${pr.status}'. Seules les demandes 'DRAFT' peuvent être modifiées.`
-          );
+          req.reject(409, 'ERR_409_PR_LOCKED', [pr.number]);
         }
       }
     });
@@ -184,21 +276,20 @@ export default class ProcurementService extends cds.ApplicationService {
     this.on('submit', 'PurchaseRequests', async (req) => {
       const prId = req.params[0]?.ID || req.params[0] || (await SELECT.one.from(req.subject))?.ID;
       const pr = await SELECT.one.from(PurchaseRequests).where({ ID: prId });
-      if (!pr) return req.reject(404, "Demande d'achat introuvable.");
+      if (!pr) return req.reject(404, 'ERR_400_PR_NOT_FOUND');
 
       // Seul l'auteur (ou Manager/Admin) peut soumettre la demande
       if (pr.createdBy && pr.createdBy !== req.user.id && !req.user.is('Manager') && !req.user.is('Admin')) {
-        return req.reject(403, "Vous ne pouvez soumettre que vos propres demandes d'achat.");
+        return req.reject(403, 'ERR_403_OWN_REQUESTS_ONLY');
       }
 
       if (pr.status !== 'DRAFT') {
-        return req.reject(
-          409,
-          `Impossible de soumettre la demande '${pr.number}' : son statut actuel est '${pr.status}'. Seules les demandes 'DRAFT' peuvent être soumises.`
-        );
+        const currentStatusFr = pr.status === 'SUBMITTED' ? 'Soumise' : (pr.status === 'APPROVED' ? 'Approuvée' : 'Refusée');
+        return req.reject(409, 'ERR_409_STATUS_TRANSITION', [pr.number, 'soumise', currentStatusFr, 'en brouillon']);
       }
 
       await UPDATE(PurchaseRequests, prId).set({ status: 'SUBMITTED' });
+      req.notify('MSG_SUBMIT_SUCCESS', [pr.number]);
       return await SELECT.one.from(PurchaseRequests).where({ ID: prId });
     });
 
@@ -206,16 +297,15 @@ export default class ProcurementService extends cds.ApplicationService {
     this.on('approve', 'PurchaseRequests', async (req) => {
       const prId = req.params[0]?.ID || req.params[0] || (await SELECT.one.from(req.subject))?.ID;
       const pr = await SELECT.one.from(PurchaseRequests).where({ ID: prId });
-      if (!pr) return req.reject(404, "Demande d'achat introuvable.");
+      if (!pr) return req.reject(404, 'ERR_400_PR_NOT_FOUND');
 
       if (pr.status !== 'SUBMITTED') {
-        return req.reject(
-          409,
-          `Impossible d'approuver la demande '${pr.number}' : son statut actuel est '${pr.status}'. Seules les demandes 'SUBMITTED' peuvent être approuvées.`
-        );
+        const currentStatusFr = pr.status === 'DRAFT' ? 'Brouillon' : (pr.status === 'APPROVED' ? 'Approuvée' : 'Refusée');
+        return req.reject(409, 'ERR_409_STATUS_TRANSITION', [pr.number, 'approuvée', currentStatusFr, 'soumise']);
       }
 
       await UPDATE(PurchaseRequests, prId).set({ status: 'APPROVED' });
+      req.notify('MSG_APPROVE_SUCCESS', [pr.number]);
       return await SELECT.one.from(PurchaseRequests).where({ ID: prId });
     });
 
@@ -223,16 +313,20 @@ export default class ProcurementService extends cds.ApplicationService {
     this.on('decline', 'PurchaseRequests', async (req) => {
       const prId = req.params[0]?.ID || req.params[0] || (await SELECT.one.from(req.subject))?.ID;
       const pr = await SELECT.one.from(PurchaseRequests).where({ ID: prId });
-      if (!pr) return req.reject(404, "Demande d'achat introuvable.");
+      if (!pr) return req.reject(404, 'ERR_400_PR_NOT_FOUND');
 
-      if (pr.status !== 'SUBMITTED') {
-        return req.reject(
-          409,
-          `Impossible de refuser la demande '${pr.number}' : son statut actuel est '${pr.status}'. Seules les demandes 'SUBMITTED' peuvent être refusées.`
-        );
+      const reason = (req.data?.reason || '').trim();
+      if (!reason) {
+        return req.reject(400, 'ERR_400_REASON_REQUIRED');
       }
 
-      await UPDATE(PurchaseRequests, prId).set({ status: 'REJECTED' });
+      if (pr.status !== 'SUBMITTED') {
+        const currentStatusFr = pr.status === 'DRAFT' ? 'Brouillon' : (pr.status === 'APPROVED' ? 'Approuvée' : 'Refusée');
+        return req.reject(409, 'ERR_409_STATUS_TRANSITION', [pr.number, 'refusée', currentStatusFr, 'soumise']);
+      }
+
+      await UPDATE(PurchaseRequests, prId).set({ status: 'REJECTED', rejectionReason: reason });
+      req.notify('MSG_DECLINE_SUCCESS', [pr.number]);
       return await SELECT.one.from(PurchaseRequests).where({ ID: prId });
     });
 
@@ -240,27 +334,23 @@ export default class ProcurementService extends cds.ApplicationService {
     this.on('createPurchaseOrder', 'PurchaseRequests', async (req) => {
       const prId = req.params[0]?.ID || req.params[0] || (await SELECT.one.from(req.subject))?.ID;
       const pr = await SELECT.one.from(PurchaseRequests).where({ ID: prId });
-      if (!pr) return req.reject(404, "Demande d'achat introuvable.");
+      if (!pr) return req.reject(404, 'ERR_400_PR_NOT_FOUND');
 
       if (pr.status !== 'APPROVED') {
-        return req.reject(
-          409,
-          `Impossible de créer une commande : la demande d'achat '${pr.number}' n'est pas approuvée (statut actuel : '${pr.status}').`
-        );
+        const currentStatusFr = pr.status === 'DRAFT' ? 'Brouillon' : (pr.status === 'SUBMITTED' ? 'Soumise' : 'Refusée');
+        return req.reject(409, 'ERR_409_STATUS_TRANSITION', [pr.number, 'générée en commandes', currentStatusFr, 'approuvée']);
       }
 
       // Vérifier si des commandes existent déjà pour cette demande
       const existingOrders = await SELECT.from(PurchaseOrders).where({ request_ID: prId });
       if (existingOrders.length > 0) {
-        return req.reject(
-          409,
-          `Une ou plusieurs commandes d'achat ont déjà été créées pour la demande '${pr.number}'.`
-        );
+        const poNumbers = existingOrders.map((o) => o.number).join(', ');
+        return req.reject(409, 'ERR_409_ORDERS_EXIST', [pr.number, poNumbers]);
       }
 
       const items = await SELECT.from(PurchaseRequestItems).where({ request_ID: prId });
       if (!items || items.length === 0) {
-        return req.reject(400, "La demande d'achat ne contient aucun article.");
+        return req.reject(400, 'ERR_400_ITEMS_REQUIRED');
       }
 
       // Regrouper les articles par fournisseur
@@ -268,7 +358,7 @@ export default class ProcurementService extends cds.ApplicationService {
       for (const item of items) {
         const prod = await SELECT.one.from(Products).where({ ID: item.product_ID });
         if (!prod) {
-          return req.reject(404, `Produit avec l'identifiant '${item.product_ID}' introuvable.`);
+          return req.reject(404, 'ERR_400_PROD_NOT_FOUND');
         }
         if (!prod.supplier_ID) {
           return req.reject(400, `Le produit '${prod.name}' (${prod.code}) n'est associé à aucun fournisseur.`);
@@ -320,6 +410,8 @@ export default class ProcurementService extends cds.ApplicationService {
         createdOrders.push(fullPo);
       }
 
+      const poListStr = createdOrders.map((o) => o.number).join(', ');
+      req.notify('MSG_PO_CREATED_SUCCESS', [createdOrders.length, poListStr]);
       return createdOrders;
     });
 
@@ -331,18 +423,18 @@ export default class ProcurementService extends cds.ApplicationService {
     this.on('receive', 'PurchaseOrders', async (req) => {
       const poId = req.params[0]?.ID || req.params[0] || (await SELECT.one.from(req.subject))?.ID;
       const po = await SELECT.one.from(PurchaseOrders).where({ ID: poId });
-      if (!po) return req.reject(404, "Commande d'achat introuvable.");
+      if (!po) return req.reject(404, 'ERR_400_PO_NOT_FOUND');
 
       if (po.status === 'CANCELLED') {
-        return req.reject(409, `Impossible de réceptionner la commande '${po.number}' : elle a été annulée.`);
+        return req.reject(409, 'ERR_409_ORDER_CANCELLED', [po.number]);
       }
       if (po.status === 'RECEIVED') {
-        return req.reject(409, `La commande '${po.number}' a déjà été entièrement réceptionnée.`);
+        return req.reject(409, 'ERR_409_ORDER_ALREADY_RECEIVED', [po.number]);
       }
 
       const orderItems = await SELECT.from(PurchaseOrderItems).where({ order_ID: poId });
       if (!orderItems || orderItems.length === 0) {
-        return req.reject(400, "La commande d'achat ne contient aucun article.");
+        return req.reject(400, 'ERR_400_ITEMS_REQUIRED');
       }
 
       const requestedLines = req.data?.items;
@@ -360,27 +452,26 @@ export default class ProcurementService extends cds.ApplicationService {
           }
         }
         if (linesToReceive.length === 0) {
-          return req.reject(400, "Aucun article restant à réceptionner pour cette commande.");
+          return req.reject(400, 'ERR_400_NO_REMAINING_ITEMS');
         }
       } else {
         // Réception ciblée spécifiée par l'utilisateur
         for (const input of requestedLines) {
           const qty = Number(input.quantity);
           if (isNaN(qty) || qty <= 0) {
-            return req.reject(400, "La quantité à réceptionner doit être un nombre strictement positif.");
+            return req.reject(400, 'ERR_400_QTY_POSITIVE');
           }
 
           const oi = orderItems.find((item) => item.product_ID === input.product);
           if (!oi) {
-            return req.reject(400, `Le produit '${input.product}' ne figure pas dans cette commande.`);
+            return req.reject(400, 'ERR_400_PROD_NOT_FOUND');
           }
 
           const remaining = (oi.quantity || 0) - (oi.receivedQuantity || 0);
           if (qty > remaining) {
-            return req.reject(
-              400,
-              `Quantité reçue trop élevée pour le produit '${input.product}'. Quantité restante : ${remaining}, quantité soumise : ${qty}.`
-            );
+            const prod = await SELECT.one.from(Products).where({ ID: input.product });
+            const prodName = prod?.name || input.product;
+            return req.reject(400, 'ERR_400_QTY_TOO_HIGH', [prodName, remaining, qty]);
           }
 
           linesToReceive.push({
@@ -444,7 +535,42 @@ export default class ProcurementService extends cds.ApplicationService {
       const newStatus = allCompleted ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
       await UPDATE(PurchaseOrders, poId).set({ status: newStatus });
 
+      if (allCompleted) {
+        req.notify('MSG_RECEIVE_FULL_SUCCESS', [grNumber, po.number]);
+      } else {
+        const remainingTotal = updatedOrderItems.reduce((sum, item) => sum + Math.max(0, (item.quantity || 0) - (item.receivedQuantity || 0)), 0);
+        req.notify('MSG_RECEIVE_PARTIAL_SUCCESS', [grNumber, po.number, remainingTotal]);
+      }
+
       return await SELECT.one.from(GoodsReceipts).where({ ID: grId });
+    });
+
+    // =========================================================================
+    // 4. GESTIONNAIRE D'ERREURS CENTRALISÉ (TRADUCTIONS 403, 401 ET VALIDATIONS)
+    // =========================================================================
+    this.on('error', (err, req) => {
+      const code = err.status || err.code || err.statusCode;
+      const target = req.target?.name || '';
+      const event = req.event || '';
+      const path = req._?.req?.url || '';
+
+      if (code === 403 || code === '403') {
+        if (event === 'approve' || event === 'decline' || path.includes('/approve') || path.includes('/decline')) {
+          err.message = "Action refusée : seul un manager peut approuver ou refuser une demande.";
+        } else if (event === 'createPurchaseOrder' || path.includes('/createPurchaseOrder')) {
+          err.message = "Action refusée : seul un manager peut générer les commandes d'achat.";
+        } else if (event === 'receive' || path.includes('/receive')) {
+          err.message = "Action refusée : seul un magasinier peut enregistrer une réception.";
+        } else if (target.includes('Products') || target.includes('Suppliers') || path.includes('/Products') || path.includes('/Suppliers')) {
+          if (['CREATE', 'UPDATE', 'DELETE', 'POST', 'PUT', 'PATCH'].includes(event) || ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+            err.message = "Action refusée : seul un administrateur peut modifier le catalogue.";
+          }
+        } else if (target.includes('PurchaseRequests') || path.includes('/PurchaseRequests')) {
+          err.message = "Vous ne pouvez agir que sur vos propres demandes.";
+        }
+      } else if (code === 401 || code === '401') {
+        err.message = "Votre session a expiré ou vous n'êtes pas connecté. Reconnectez-vous.";
+      }
     });
 
     return super.init();

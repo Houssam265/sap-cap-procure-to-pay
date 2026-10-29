@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAP Procure-to-Pay Portal | Fiori Launchpad</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0070f3;
+            --primary-dark: #0051b3;
+            --primary-light: #e6f0ff;
+            --sap-blue: #0a6ed1;
+            --bg-canvas: #090d16;
+            --bg-card: rgba(22, 29, 47, 0.75);
+            --bg-card-hover: rgba(30, 41, 67, 0.9);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(0, 112, 243, 0.5);
+            --text-main: #f3f4f6;
+            --text-muted: #94a3b8;
+            --text-accent: #38bdf8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font);
+            background-color: var(--bg-canvas);
+            background-image: 
+                radial-gradient(at 10% 20%, rgba(10, 110, 209, 0.18) 0px, transparent 50%),
+                radial-gradient(at 90% 80%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 50% 50%, rgba(14, 165, 233, 0.08) 0px, transparent 60%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(9, 13, 22, 0.8);
+            backdrop-filter: blur(16px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo-group {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .sap-badge {
+            background: linear-gradient(135deg, #0a6ed1, #0051b3);
+            color: #fff;
+            font-weight: 800;
+            font-size: 0.95rem;
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            letter-spacing: 0.05em;
+            box-shadow: 0 4px 12px rgba(10, 110, 209, 0.3);
+        }
+
+        .header-title h1 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #fff;
+        }
+
+        .header-title p {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        .header-badges {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .chip {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            padding: 0.25rem 0.65rem;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-accent);
+        }
+
+        .chip.live {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: rgba(16, 185, 129, 0.3);
+            color: var(--success);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .chip.live::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: var(--success);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        main {
+            flex: 1;
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 2.5rem 1.5rem;
+            width: 100%;
+        }
+
+        .hero-section {
+            text-align: center;
+            margin-bottom: 3rem;
+            position: relative;
+        }
+
+        .hero-section h2 {
+            font-size: 2.4rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.8rem;
+        }
+
+        .hero-section p {
+            font-size: 1.05rem;
+            color: var(--text-muted);
+            max-width: 720px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            color: #fff;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 18px;
+            background: var(--sap-blue);
+            border-radius: 2px;
+        }
+
+        .grid-apps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3.5rem;
+        }
+
+        .card-app {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 1.75rem;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            text-decoration: none;
+            color: inherit;
+            position: relative;
+            backdrop-filter: blur(12px);
+            overflow: hidden;
+        }
+
+        .card-app::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: transparent;
+            transition: background 0.25s;
+        }
+
+        .card-app:hover {
+            transform: translateY(-4px);
+            border-color: var(--border-hover);
+            background: var(--bg-card-hover);
+            box-shadow: 0 12px 30px -10px rgba(0, 112, 243, 0.25);
+        }
+
+        .card-app:hover::before {
+            background: linear-gradient(90deg, #0a6ed1, #38bdf8);
+        }
+
+        .card-header-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4rem;
+            margin-bottom: 1.25rem;
+            background: rgba(10, 110, 209, 0.15);
+            border: 1px solid rgba(10, 110, 209, 0.3);
+            color: #38bdf8;
+        }
+
+        .card-app.pr .card-header-icon {
+            background: rgba(14, 165, 233, 0.15);
+            border-color: rgba(14, 165, 233, 0.3);
+            color: #38bdf8;
+        }
+        .card-app.po .card-header-icon {
+            background: rgba(168, 85, 247, 0.15);
+            border-color: rgba(168, 85, 247, 0.3);
+            color: #c084fc;
+        }
+        .card-app.prod .card-header-icon {
+            background: rgba(16, 185, 129, 0.15);
+            border-color: rgba(16, 185, 129, 0.3);
+            color: #34d399;
+        }
+        .card-app.sm .card-header-icon {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: rgba(245, 158, 11, 0.3);
+            color: #fbbf24;
+        }
+
+        .card-app h3 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+
+        .card-app p {
+            font-size: 0.88rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .role-tags {
+            display: flex;
+            gap: 0.35rem;
+            flex-wrap: wrap;
+        }
+
+        .role-pill {
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-muted);
+        }
+
+        .role-pill.req { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+        .role-pill.mgr { background: rgba(192, 132, 252, 0.15); color: #c084fc; }
+        .role-pill.wh  { background: rgba(251, 191, 36, 0.15);  color: #fbbf24; }
+        .role-pill.adm { background: rgba(52, 211, 153, 0.15);  color: #34d399; }
+
+        .btn-launch {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #38bdf8;
+            transition: transform 0.2s;
+        }
+
+        .card-app:hover .btn-launch {
+            transform: translateX(4px);
+        }
+
+        /* Comptes de test */
+        .auth-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 1.75rem;
+            backdrop-filter: blur(12px);
+        }
+
+        .auth-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1rem;
+        }
+
+        .auth-card {
+            background: rgba(10, 15, 26, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .auth-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .auth-user-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.6rem;
+        }
+
+        .auth-name {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .auth-creds {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px dashed rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 0.4rem 0.6rem;
+            margin-bottom: 0.6rem;
+            color: var(--text-accent);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .auth-role-desc {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        footer {
+            border-top: 1px solid var(--border-color);
+            padding: 1.5rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: auto;
+        }
+
+        footer a {
+            color: var(--text-accent);
+            text-decoration: none;
+        }
+
+        @media (max-width: 768px) {
+            .hero-section h2 { font-size: 1.8rem; }
+            .grid-apps { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-container">
+            <div class="logo-group">
+                <span class="sap-badge">SAP</span>
+                <div class="header-title">
+                    <h1>Procure-to-Pay Portal</h1>
+                    <p>Fiori Elements V4 & CAP OData V4</p>
+                </div>
+            </div>
+            <div class="header-badges">
+                <span class="chip live">cds watch actif</span>
+                <span class="chip">Node 22 / CAP v10</span>
+                <span class="chip">Devise : MAD</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero-section">
+            <h2>Espace de Pilotage des Achats & Stocks</h2>
+            <p>Application de portfolio d'ingénieur démontrant l'implémentation complète du cycle Procure-to-Pay : de la demande d'achat à la réception de stock en magasin avec contrôles stricts par rôles.</p>
+        </section>
+
+        <h3 class="section-title">Applications Métier Fiori Elements V4</h3>
+        <div class="grid-apps">
+            <!-- App 1: Demandes d'Achat -->
+            <a href="/purchase-requests/webapp/index.html" class="card-app pr" id="app-purchase-requests">
+                <div>
+                    <div class="card-header-icon">📋</div>
+                    <h3>Demandes d'Achat</h3>
+                    <p>Création, saisie des articles, soumission et cycle d'approbation des demandes d'achat avec recalcul automatique des totaux.</p>
+                </div>
+                <div class="card-footer">
+                    <div class="role-tags">
+                        <span class="role-pill req">Requester</span>
+                        <span class="role-pill mgr">Manager</span>
+                    </div>
+                    <span class="btn-launch">Ouvrir &rarr;</span>
+                </div>
+            </a>
+
+            <!-- App 2: Commandes d'Achat -->
+            <a href="/purchase-orders/webapp/index.html" class="card-app po" id="app-purchase-orders">
+                <div>
+                    <div class="card-header-icon">📦</div>
+                    <h3>Commandes d'Achat</h3>
+                    <p>Gestion des commandes générées par fournisseur distinct, suivi des statuts et enregistrement des réceptions de marchandises.</p>
+                </div>
+                <div class="card-footer">
+                    <div class="role-tags">
+                        <span class="role-pill mgr">Manager</span>
+                        <span class="role-pill wh">Warehouse</span>
+                    </div>
+                    <span class="btn-launch">Ouvrir &rarr;</span>
+                </div>
+            </a>
+
+            <!-- App 3: Catalogue Produits -->
+            <a href="/products/webapp/index.html" class="card-app prod" id="app-products">
+                <div>
+                    <div class="card-header-icon">🏷️</div>
+                    <h3>Catalogue & Stock</h3>
+                    <p>Référentiel produits, gestion des prix, fournisseurs associés et détection visuelle automatique des alertes de stock bas.</p>
+                </div>
+                <div class="card-footer">
+                    <div class="role-tags">
+                        <span class="role-pill adm">Admin</span>
+                        <span class="role-pill">Tous</span>
+                    </div>
+                    <span class="btn-launch">Ouvrir &rarr;</span>
+                </div>
+            </a>
+
+            <!-- App 4: Mouvements de Stock -->
+            <a href="/stock-movements/webapp/index.html" class="card-app sm" id="app-stock-movements">
+                <div>
+                    <div class="card-header-icon">📊</div>
+                    <h3>Traçabilité des Flux</h3>
+                    <p>Journal d'audit immuable en lecture seule retraçant chaque entrée ou sortie physique de stock avec sa pièce justificative.</p>
+                </div>
+                <div class="card-footer">
+                    <div class="role-tags">
+                        <span class="role-pill wh">Warehouse</span>
+                        <span class="role-pill mgr">Manager</span>
+                    </div>
+                    <span class="btn-launch">Ouvrir &rarr;</span>
+                </div>
+            </a>
+        </div>
+
+        <h3 class="section-title">Comptes Utilisateurs & Droits d'Accès (Basic Auth)</h3>
+        <div class="auth-container">
+            <div class="auth-grid">
+                <!-- Alice -->
+                <div class="auth-card">
+                    <div class="auth-user-header">
+                        <span class="auth-name">Alice</span>
+                        <span class="role-pill req">Requester</span>
+                    </div>
+                    <div class="auth-creds">
+                        <span>alice : alice</span>
+                    </div>
+                    <p class="auth-role-desc">Crée, modifie et soumet ses propres demandes d'achat en DRAFT. Aucun accès aux commandes ni aux réceptions.</p>
+                </div>
+
+                <!-- Bob -->
+                <div class="auth-card">
+                    <div class="auth-user-header">
+                        <span class="auth-name">Bob</span>
+                        <span class="role-pill mgr">Manager</span>
+                    </div>
+                    <div class="auth-creds">
+                        <span>bob : bob</span>
+                    </div>
+                    <p class="auth-role-desc">Valide ou refuse les demandes soumises. Génère les commandes d'achat par fournisseur. Ne peut pas réceptionner.</p>
+                </div>
+
+                <!-- Carol -->
+                <div class="auth-card">
+                    <div class="auth-user-header">
+                        <span class="auth-name">Carol</span>
+                        <span class="role-pill wh">Warehouse</span>
+                    </div>
+                    <div class="auth-creds">
+                        <span>carol : carol</span>
+                    </div>
+                    <p class="auth-role-desc">Réceptionne les marchandises (partielles ou totales). Met à jour le stock et consulte l'historique des flux.</p>
+                </div>
+
+                <!-- Admin -->
+                <div class="auth-card">
+                    <div class="auth-user-header">
+                        <span class="auth-name">Admin</span>
+                        <span class="role-pill adm">Admin</span>
+                    </div>
+                    <div class="auth-creds">
+                        <span>admin : admin</span>
+                    </div>
+                    <p class="auth-role-desc">Gestion complète du catalogue produits et fournisseurs. Soumis à l'intégrité référentielle stricte.</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>Projet Portfolio SAP Cloud Application Programming Model (CAP) & Fiori Elements V4 &bull; Réalisé sous Node.js & SQLite in-memory</p>
+    </footer>
+
+</body>
+</html>

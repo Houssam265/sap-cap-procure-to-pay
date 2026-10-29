@@ -1,0 +1,156 @@
+{
+  "_version": "1.49.0",
+  "sap.app": {
+    "id": "purchaserequests",
+    "type": "application",
+    "i18n": "i18n/i18n.properties",
+    "applicationVersion": {
+      "version": "1.0.0"
+    },
+    "title": "{{appTitle}}",
+    "description": "{{appDescription}}",
+    "dataSources": {
+      "mainService": {
+        "uri": "/odata/v4/procurement/",
+        "type": "OData",
+        "settings": {
+          "annotations": [],
+          "odataVersion": "4.0"
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "icons": {
+      "icon": "sap-icon://request"
+    },
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "flexEnabled": false,
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.core": {},
+        "sap.fe.templates": {}
+      }
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "purchaserequests.i18n.i18n"
+        }
+      },
+      "": {
+        "dataSource": "mainService",
+        "preload": true,
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true
+        }
+      }
+    },
+    "routing": {
+      "config": {},
+      "routes": [
+        {
+          "pattern": "PurchaseRequests/create",
+          "name": "PurchaseRequestsCreate",
+          "target": "PurchaseRequestsCreate"
+        },
+        {
+          "pattern": ":?query:",
+          "name": "PurchaseRequestsList",
+          "target": "PurchaseRequestsList"
+        },
+        {
+          "pattern": "PurchaseRequests({key}):?query:",
+          "name": "PurchaseRequestsObjectPage",
+          "target": "PurchaseRequestsObjectPage"
+        }
+      ],
+      "targets": {
+        "PurchaseRequestsList": {
+          "type": "Component",
+          "id": "PurchaseRequestsList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "contextPath": "/PurchaseRequests",
+              "variantManagement": "Page",
+              "initialLoad": true,
+              "navigation": {
+                "PurchaseRequests": {
+                  "detail": {
+                    "route": "PurchaseRequestsObjectPage"
+                  }
+                }
+              },
+              "controlConfiguration": {
+                "@com.sap.vocabularies.UI.v1.LineItem": {
+                  "actions": {
+                    "CreateRequest": {
+                      "text": "Créer",
+                      "press": ".extension.purchaserequests.ext.controller.ListReportExtension.onCreatePress",
+                      "requiresSelection": false,
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "PurchaseRequestsCreate": {
+          "type": "Component",
+          "id": "PurchaseRequestsCreate",
+          "name": "sap.fe.core.fpm",
+          "options": {
+            "settings": {
+              "viewName": "purchaserequests.ext.view.Create",
+              "contextPath": "/PurchaseRequests"
+            }
+          }
+        },
+        "PurchaseRequestsObjectPage": {
+          "type": "Component",
+          "id": "PurchaseRequestsObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "contextPath": "/PurchaseRequests"
+            }
+          }
+        }
+      }
+    },
+    "extends": {
+      "extensions": {
+        "sap.ui.controllerExtensions": {
+          "sap.fe.templates.ListReport.ListReportController#purchaserequests::PurchaseRequestsList": {
+            "controllerName": "purchaserequests.ext.controller.ListReportExtension"
+          },
+          "sap.fe.templates.ListReport.ListReportController#PurchaseRequestsList": {
+            "controllerName": "purchaserequests.ext.controller.ListReportExtension"
+          },
+          "sap.fe.templates.ListReport.ListReportController": {
+            "controllerName": "purchaserequests.ext.controller.ListReportExtension"
+          }
+        }
+      }
+    }
+  }
+}

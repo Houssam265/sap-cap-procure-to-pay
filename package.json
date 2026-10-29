@@ -13,9 +13,13 @@
   },
   "private": true,
   "cds": {
+    "i18n": {
+      "default_language": "fr"
+    },
     "requires": {
       "auth": {
         "kind": "mocked",
+        "login_required": true,
         "users": {
           "alice": {
             "password": "alice",

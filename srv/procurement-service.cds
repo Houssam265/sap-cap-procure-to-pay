@@ -20,12 +20,35 @@ service ProcurementService @(requires: 'authenticated-user') {
   ]
   entity PurchaseRequests as projection on pt.PurchaseRequests actions {
     @(requires: 'Requester')
+    @Core.OperationAvailable: in.isSubmitAllowed
+    @Common.SideEffects: {
+      TargetProperties: ['in/status', 'in/statusCriticality', 'in/statusText', 'in/isSubmitAllowed']
+    }
     action submit() returns PurchaseRequests;
+
     @(requires: 'Manager')
+    @Core.OperationAvailable: in.isApproveAllowed
+    @Common.SideEffects: {
+      TargetProperties: ['in/status', 'in/statusCriticality', 'in/statusText', 'in/isApproveAllowed', 'in/isDeclineAllowed', 'in/isPoCreationAllowed']
+    }
     action approve() returns PurchaseRequests;
+
     @(requires: 'Manager')
-    action decline() returns PurchaseRequests;
+    @Core.OperationAvailable: in.isDeclineAllowed
+    @Common.SideEffects: {
+      TargetProperties: ['in/status', 'in/rejectionReason', 'in/statusCriticality', 'in/statusText', 'in/isApproveAllowed', 'in/isDeclineAllowed', 'in/isPoCreationAllowed']
+    }
+    action decline(
+      @(title: 'Motif du refus')
+      reason : String @mandatory
+    ) returns PurchaseRequests;
+
     @(requires: 'Manager')
+    @Core.OperationAvailable: in.isPoCreationAllowed
+    @Common.SideEffects: {
+      TargetProperties: ['in/isPoCreationAllowed'],
+      TargetEntities: ['in/orders']
+    }
     action createPurchaseOrder() returns array of PurchaseOrders;
   };
 
@@ -48,7 +71,15 @@ service ProcurementService @(requires: 'authenticated-user') {
   ]
   entity PurchaseOrders as projection on pt.PurchaseOrders actions {
     @(requires: 'Warehouse')
-    action receive(items : array of ReceiptItemInput) returns GoodsReceipts;
+    @Core.OperationAvailable: in.isReceiveAllowed
+    @Common.SideEffects: {
+      TargetProperties: ['in/status', 'in/statusCriticality', 'in/statusText', 'in/isReceiveAllowed'],
+      TargetEntities: ['in/items', 'in/receipts']
+    }
+    action receive(
+      @(title: 'Articles à réceptionner')
+      items : array of ReceiptItemInput
+    ) returns GoodsReceipts;
   };
 
   @readonly

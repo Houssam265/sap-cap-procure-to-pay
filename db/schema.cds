@@ -37,15 +37,27 @@ entity Products : cuid, managed {
   minStock : Integer       default 5  @assert.range: [ 0, 99999999 ];
   currency : String(3)     default 'MAD';
   lowStock : Boolean = (stock < minStock);
+  virtual lowStockCriticality : Integer;
   supplier : Association to Suppliers @mandatory;
 }
 
 entity PurchaseRequests : cuid, managed {
-  number      : String(20);
-  description : String(200)   @mandatory;
-  status      : Status        default 'DRAFT';
-  totalAmount : Decimal(12,2) default 0 @assert.range: [ 0, 9999999999.99 ];
-  currency    : String(3)     default 'MAD';
+  number          : String(20);
+  description     : String(200)   @mandatory;
+  status          : Status        default 'DRAFT';
+  rejectionReason : String(500);
+  totalAmount     : Decimal(12,2) default 0 @assert.range: [ 0, 9999999999.99 ];
+  currency        : String(3)     default 'MAD';
+  virtual statusCriticality     : Integer;
+  virtual statusText            : String(30);
+  virtual isSubmitAllowed       : Boolean;
+  virtual isApproveAllowed      : Boolean;
+  virtual isDeclineAllowed      : Boolean;
+  virtual isPoCreationAllowed   : Boolean;
+  virtual isSubmitHidden        : Boolean;
+  virtual isManagerActionHidden : Boolean;
+  virtual isRejectionReasonHidden : Boolean;
+  orders      : Association to many PurchaseOrders on orders.request = $self;
   items       : Composition of many PurchaseRequestItems on items.request = $self;
 }
 
@@ -64,6 +76,10 @@ entity PurchaseOrders : cuid, managed {
   status      : OrderStatus   default 'OPEN';
   totalAmount : Decimal(12,2) default 0 @assert.range: [ 0, 9999999999.99 ];
   currency    : String(3)     default 'MAD';
+  virtual statusCriticality       : Integer;
+  virtual statusText              : String(30);
+  virtual isReceiveAllowed        : Boolean;
+  virtual isWarehouseActionHidden : Boolean;
   items       : Composition of many PurchaseOrderItems on items.order = $self;
   receipts    : Association to many GoodsReceipts on receipts.order = $self;
 }
