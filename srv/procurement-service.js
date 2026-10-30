@@ -95,19 +95,23 @@ export default class ProcurementService extends cds.ApplicationService {
             pr.statusText = pr.status;
         }
 
-        const isOwner = !pr.createdBy || pr.createdBy === userId || isManager;
+        const isOwner = !pr.createdBy || pr.createdBy === userId;
         const hasOrders = existingOrderMap.has(pr.ID);
 
         // Disponibilité d'action (@Core.OperationAvailable)
-        pr.isSubmitAllowed = Boolean(isRequester && pr.status === 'DRAFT' && isOwner);
+        pr.isSubmitAllowed = Boolean(isRequester && isOwner && pr.status === 'DRAFT');
         pr.isApproveAllowed = Boolean(isManager && pr.status === 'SUBMITTED');
         pr.isDeclineAllowed = Boolean(isManager && pr.status === 'SUBMITTED');
         pr.isPoCreationAllowed = Boolean(isManager && pr.status === 'APPROVED' && !hasOrders);
 
         // Masquage selon le rôle (@UI.Hidden)
-        pr.isSubmitHidden = Boolean(!isRequester);
+        // Soumettre : visible uniquement pour le propriétaire Requester
+        pr.isSubmitHidden = Boolean(!isRequester || !isOwner);
         pr.isManagerActionHidden = Boolean(!isManager);
         pr.isRejectionReasonHidden = Boolean(pr.status !== 'REJECTED' || !pr.rejectionReason);
+
+        // Supprimer : autorisé seulement si DRAFT et propriétaire (ou Manager/Admin)
+        pr.isDeleteAllowed = Boolean(pr.status === 'DRAFT' && (isOwner || isManager));
       }
     });
 

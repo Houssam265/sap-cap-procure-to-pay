@@ -248,13 +248,6 @@ annotate service.PurchaseOrders with @(
       Value: createdAt,
       Label: 'Date d''émission'
     },
-    {
-      $Type: 'UI.DataFieldForAction',
-      Action: 'ProcurementService.receive',
-      Label: 'Réceptionner',
-      InvocationGrouping: #ChangeSet,
-      ![@UI.Hidden]: isWarehouseActionHidden
-    }
   ],
   UI.Identification: [
     {
@@ -570,6 +563,12 @@ annotate service.Products with {
   supplier @Common.Label: 'Fournisseur';
 };
 
+annotate service.PurchaseRequests with @(
+  Capabilities.DeleteRestrictions: {
+    Deletable: isDeleteAllowed
+  }
+) {};
+
 annotate service.PurchaseRequests with {
   ID                      @UI.Hidden;
   number                  @Common.Label: 'N° Demande';
@@ -589,6 +588,7 @@ annotate service.PurchaseRequests with {
   isSubmitHidden          @UI.Hidden;
   isManagerActionHidden   @UI.Hidden;
   isRejectionReasonHidden @UI.Hidden;
+  isDeleteAllowed         @UI.Hidden;
 };
 
 annotate service.PurchaseRequestItems with {

@@ -57,6 +57,7 @@ entity PurchaseRequests : cuid, managed {
   virtual isSubmitHidden        : Boolean;
   virtual isManagerActionHidden : Boolean;
   virtual isRejectionReasonHidden : Boolean;
+  virtual isDeleteAllowed       : Boolean;
   orders      : Association to many PurchaseOrders on orders.request = $self;
   items       : Composition of many PurchaseRequestItems on items.request = $self;
 }

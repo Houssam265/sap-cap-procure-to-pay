@@ -15,7 +15,7 @@
         }
     </style>
 
-    <script 
+    <script
         id="sap-ui-bootstrap"
         src="https://ui5.sap.com/resources/sap-ui-core.js"
         data-sap-ui-libs="sap.m, sap.fe.core, sap.fe.macros, sap.fe.templates"
@@ -29,15 +29,19 @@
             "products": "./"
         }'>
     </script>
+
+    <!-- Shell bar commune : navigation + utilisateur connecté -->
+    <script src="/app/shellbar.js" defer></script>
 </head>
 
-<body class="sapUiBody sapUiSizeCompact" id="content">
-    <div 
-        data-sap-ui-component 
-        data-name="products" 
+<body class="sapUiBody sapUiSizeCompact" id="content"
+      data-app-title="Catalogue Produits">
+    <div
+        data-sap-ui-component
+        data-name="products"
         data-id="container"
         data-height="100%"
-        data-settings='{"id": "products"}' 
+        data-settings='{"id": "products"}'
         data-handle-validation="true">
     </div>
 </body>

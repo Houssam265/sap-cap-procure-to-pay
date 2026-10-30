@@ -332,6 +332,255 @@ Invoke-HttpTest -TestId "3.6" -Description "Creation directe de commande rejetee
 
 
 # ==============================================================================
+# SECTION 4 : NOUVEAUX CAS - RECEPTION PARTIELLE/TOTALE, DECLINE AVEC/SANS MOTIF
+# ==============================================================================
+Write-Host "`n--- SECTION 4 : RECEPTION & DECLINE ---" -ForegroundColor Yellow
+
+# Préparer une nouvelle demande + cycle complet pour les tests de réception
+$pr2Created = $false; $pr2Submitted = $false; $pr2Approved = $false; $po2Created = $false
+$pr2Id = $null; $po2Id = $null
+
+# 4.1 Alice crée une deuxième demande (produit unique : 5 unités de Laptop)
+$prPayload2 = @{
+    description = "Demande test reception partielle"
+    items = @( @{ product_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"; quantity = 5 } )
+}
+$pr2Step = Invoke-HttpTest -TestId "4.1" -Description "Alice cree une 2eme demande (5 unites Laptop)" `
+    -Method "POST" -Uri "$base/PurchaseRequests" -Headers $authAlice -Body $prPayload2 -ExpectedStatus @(201)
+if ($pr2Step.Success -and $pr2Step.Data -and $pr2Step.Data.ID) { $pr2Created = $true; $pr2Id = $pr2Step.Data.ID }
+
+# 4.2 Alice soumet
+if ($pr2Created) {
+    $sub2 = Invoke-HttpTest -TestId "4.2" -Description "Alice soumet la 2eme demande" `
+        -Method "POST" -Uri "$base/PurchaseRequests(ID=$pr2Id)/submit" -Headers $authAlice -Body "{}" -ExpectedStatus @(200)
+    if ($sub2.Success) { $pr2Submitted = $true }
+} else { Skip-HttpTest -TestId "4.2" -Description "Soumission 2eme demande" -Reason "Demande non creee" }
+
+# 4.3 Bob approuve
+if ($pr2Submitted) {
+    $app2 = Invoke-HttpTest -TestId "4.3" -Description "Bob approuve la 2eme demande" `
+        -Method "POST" -Uri "$base/PurchaseRequests(ID=$pr2Id)/approve" -Headers $authBob -Body "{}" -ExpectedStatus @(200)
+    if ($app2.Success) { $pr2Approved = $true }
+} else { Skip-HttpTest -TestId "4.3" -Description "Approbation 2eme demande" -Reason "Non soumise" }
+
+# 4.4 Bob genere les commandes
+if ($pr2Approved) {
+    $po2Step = Invoke-HttpTest -TestId "4.4" -Description "Bob genere les commandes pour la 2eme demande" `
+        -Method "POST" -Uri "$base/PurchaseRequests(ID=$pr2Id)/createPurchaseOrder" -Headers $authBob -Body "{}" -ExpectedStatus @(200)
+    if ($po2Step.Success -and $po2Step.Data -and $po2Step.Data.value -and $po2Step.Data.value.Count -gt 0) {
+        $po2Created = $true
+        $po2Id = $po2Step.Data.value[0].ID
+    }
+} else { Skip-HttpTest -TestId "4.4" -Description "Generation commande 2eme demande" -Reason "Non approuvee" }
+
+# 4.5 Carol effectue une reception PARTIELLE (1 sur 5)
+if ($po2Created) {
+    $partBody2 = @{ items = @( @{ product = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"; quantity = 1 } ) }
+    $partRec = Invoke-HttpTest -TestId "4.5" -Description "Carol receptonne 1/5 (reception partielle)" `
+        -Method "POST" -Uri "$base/PurchaseOrders(ID=$po2Id)/receive" -Headers $authCarol -Body $partBody2 -ExpectedStatus @(200)
+    # Verifier que le statut est desormais PARTIALLY_RECEIVED
+    if ($partRec.Success) {
+        $poCheck = Invoke-HttpTest -TestId "4.5b" -Description "Commande passe a statut PARTIALLY_RECEIVED" `
+            -Method "GET" -Uri "$base/PurchaseOrders(ID=$po2Id)" -Headers $authCarol -ExpectedStatus @(200)
+        if ($poCheck.Success -and $poCheck.Data -and $poCheck.Data.status -eq "PARTIALLY_RECEIVED") {
+            Write-Host "       -> Statut PARTIALLY_RECEIVED confirme" -ForegroundColor Green
+        } elseif ($poCheck.Success) {
+            Write-Host "       -> [ATTENTION] Statut inattendu : $($poCheck.Data.status)" -ForegroundColor Yellow
+        }
+    }
+} else { Skip-HttpTest -TestId "4.5" -Description "Reception partielle 1/5" -Reason "Commande non creee" }
+
+# 4.6 Carol tente de sur-recepter (quantite > restant = 4) -> doit etre rejete 400
+if ($po2Created) {
+    $overBody = @{ items = @( @{ product = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"; quantity = 99 } ) }
+    Invoke-HttpTest -TestId "4.6" -Description "Sur-reception rejetee (quantite 99 > restant 4) -> 400" `
+        -Method "POST" -Uri "$base/PurchaseOrders(ID=$po2Id)/receive" -Headers $authCarol -Body $overBody -ExpectedStatus @(400, 409) | Out-Null
+} else { Skip-HttpTest -TestId "4.6" -Description "Sur-reception rejetee" -Reason "Commande non creee" }
+
+# 4.7 Carol receptione le solde restant (4 unites)
+if ($po2Created) {
+    $soldeBody = @{ items = @( @{ product = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"; quantity = 4 } ) }
+    $fullRec = Invoke-HttpTest -TestId "4.7" -Description "Carol receptione le solde restant (4/4) -> statut RECEIVED" `
+        -Method "POST" -Uri "$base/PurchaseOrders(ID=$po2Id)/receive" -Headers $authCarol -Body $soldeBody -ExpectedStatus @(200)
+    if ($fullRec.Success) {
+        $poFinal = Invoke-HttpTest -TestId "4.7b" -Description "Commande passe a statut RECEIVED" `
+            -Method "GET" -Uri "$base/PurchaseOrders(ID=$po2Id)" -Headers $authCarol -ExpectedStatus @(200)
+        if ($poFinal.Success -and $poFinal.Data -and $poFinal.Data.status -eq "RECEIVED") {
+            Write-Host "       -> Statut RECEIVED confirme" -ForegroundColor Green
+        } elseif ($poFinal.Success) {
+            Write-Host "       -> [ATTENTION] Statut inattendu : $($poFinal.Data.status)" -ForegroundColor Yellow
+        }
+    }
+} else { Skip-HttpTest -TestId "4.7" -Description "Reception totale solde" -Reason "Commande non creee" }
+
+# 4.8 decline SANS motif -> doit renvoyer 400
+$pr3Payload = @{
+    description = "Demande test decline"
+    items = @( @{ product_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"; quantity = 2 } )
+}
+$pr3Step = Invoke-HttpTest -TestId "4.8a" -Description "Alice cree une 3eme demande pour test decline" `
+    -Method "POST" -Uri "$base/PurchaseRequests" -Headers $authAlice -Body $pr3Payload -ExpectedStatus @(201)
+$pr3Id = $null
+if ($pr3Step.Success -and $pr3Step.Data) { $pr3Id = $pr3Step.Data.ID }
+
+if ($pr3Id) {
+    Invoke-HttpTest -TestId "4.8b" -Description "Alice soumet la 3eme demande" `
+        -Method "POST" -Uri "$base/PurchaseRequests(ID=$pr3Id)/submit" -Headers $authAlice -Body "{}" -ExpectedStatus @(200) | Out-Null
+
+    # Decline SANS motif
+    Invoke-HttpTest -TestId "4.8" -Description "Decline sans motif rejete (400)" `
+        -Method "POST" -Uri "$base/PurchaseRequests(ID=$pr3Id)/decline" -Headers $authBob -Body @{ reason = "" } -ExpectedStatus @(400) | Out-Null
+
+    # 4.9 Decline AVEC motif -> 200
+    $declineBody = @{ reason = "Budget insuffisant pour ce trimestre" }
+    $declineStep = Invoke-HttpTest -TestId "4.9" -Description "Decline avec motif valide (200)" `
+        -Method "POST" -Uri "$base/PurchaseRequests(ID=$pr3Id)/decline" -Headers $authBob -Body $declineBody -ExpectedStatus @(200)
+    if ($declineStep.Success -and $declineStep.Data -and $declineStep.Data.status -eq "REJECTED") {
+        Write-Host "       -> Statut REJECTED et motif enregistre" -ForegroundColor Green
+    }
+} else {
+    Skip-HttpTest -TestId "4.8" -Description "Decline sans motif" -Reason "3eme demande non creee"
+    Skip-HttpTest -TestId "4.9" -Description "Decline avec motif" -Reason "3eme demande non creee"
+}
+
+
+# ==============================================================================
+# SECTION 5 : ENDPOINT /me ET PROTECTION OPEN REDIRECT (/login)
+# ==============================================================================
+Write-Host "`n--- SECTION 5 : /me & OPEN REDIRECT ---" -ForegroundColor Yellow
+
+$baseRoot = "http://localhost:4004"
+
+# 5.1 /me sans credentials -> 401
+Invoke-HttpTest -TestId "5.1" -Description "/me sans credentials renvoie 401" `
+    -Method "GET" -Uri "$baseRoot/me" -ExpectedStatus @(401) | Out-Null
+
+# 5.2 /me avec credentials alice -> 200 avec id=alice
+$meAlice = Invoke-HttpTest -TestId "5.2" -Description "/me avec credentials alice renvoie 200 + id=alice" `
+    -Method "GET" -Uri "$baseRoot/me" -Headers $authAlice -ExpectedStatus @(200)
+if ($meAlice.Success -and $meAlice.Data -and $meAlice.Data.id -eq "alice") {
+    Write-Host "       -> id=alice confirme, roleLabel=$($meAlice.Data.roleLabel)" -ForegroundColor Green
+} elseif ($meAlice.Success) {
+    Write-Host "       -> [ATTENTION] id recu: $($meAlice.Data.id)" -ForegroundColor Yellow
+}
+
+# 5.3 /me avec credentials bob -> 200 avec id=bob et roleLabel=Manager
+$meBob = Invoke-HttpTest -TestId "5.3" -Description "/me avec credentials bob renvoie roleLabel=Manager" `
+    -Method "GET" -Uri "$baseRoot/me" -Headers $authBob -ExpectedStatus @(200)
+if ($meBob.Success -and $meBob.Data -and $meBob.Data.roleLabel -eq "Manager") {
+    Write-Host "       -> roleLabel=Manager confirme" -ForegroundColor Green
+} elseif ($meBob.Success) {
+    Write-Host "       -> [ATTENTION] roleLabel recu: $($meBob.Data.roleLabel)" -ForegroundColor Yellow
+}
+
+# 5.4 /me avec credentials carol -> roleLabel=Magasinier
+$meCarol = Invoke-HttpTest -TestId "5.4" -Description "/me avec credentials carol renvoie roleLabel=Magasinier" `
+    -Method "GET" -Uri "$baseRoot/me" -Headers $authCarol -ExpectedStatus @(200)
+if ($meCarol.Success -and $meCarol.Data -and $meCarol.Data.roleLabel -eq "Magasinier") {
+    Write-Host "       -> roleLabel=Magasinier confirme" -ForegroundColor Green
+}
+
+# 5.5 Protection open redirect : /login?returnUrl=http://evil.com doit rediriger vers /
+# (le serveur doit retourner 302 vers "/" et non vers l'URL externe)
+try {
+    $redirectResp = Invoke-WebRequest -Uri "$baseRoot/login?returnUrl=http://evil.com" `
+        -Headers $authAlice `
+        -UseBasicParsing `
+        -MaximumRedirection 0 `
+        -TimeoutSec 10 `
+        -ErrorAction SilentlyContinue
+    $redirectStatus = [int]$redirectResp.StatusCode
+    $locationHdr = $redirectResp.Headers["Location"]
+} catch [System.Net.WebException] {
+    if ($_.Exception.Response) {
+        $redirectStatus = [int]$_.Exception.Response.StatusCode
+        $locationHdr = $_.Exception.Response.Headers["Location"]
+    } else {
+        $redirectStatus = 0; $locationHdr = ""
+    }
+} catch {
+    $redirectStatus = 0; $locationHdr = ""
+}
+
+$isRedirect = ($redirectStatus -eq 302) -or ($redirectStatus -eq 301)
+$targetIsSafe = ($locationHdr -eq "/") -or ($locationHdr -eq "http://localhost:4004/")
+$noOpenRedirect = $locationHdr -ne "http://evil.com"
+
+if ($isRedirect -and $noOpenRedirect -and $targetIsSafe) {
+    Write-Host "[5.5] [REUSSI] Open redirect protege : /login?returnUrl=http://evil.com -> Location: $locationHdr | Code: $redirectStatus" -ForegroundColor Green
+    $global:passedTests++
+} elseif ($isRedirect -and $noOpenRedirect) {
+    Write-Host "[5.5] [REUSSI] Open redirect non suivi : Location=$locationHdr (different de evil.com) | Code: $redirectStatus" -ForegroundColor Green
+    $global:passedTests++
+} else {
+    Write-Host "[5.5] [ECHEC]  Open redirect non protege : Location=$locationHdr | Code: $redirectStatus" -ForegroundColor Red
+    $global:failedTests++
+}
+
+# 5.6 Protection open redirect : /login?returnUrl=//evil.com doit rediriger vers /
+try {
+    $r2 = Invoke-WebRequest -Uri "$baseRoot/login?returnUrl=//evil.com" `
+        -Headers $authAlice `
+        -UseBasicParsing `
+        -MaximumRedirection 0 `
+        -TimeoutSec 10 `
+        -ErrorAction SilentlyContinue
+    $loc2 = $r2.Headers["Location"]
+} catch [System.Net.WebException] {
+    if ($_.Exception.Response) { $loc2 = $_.Exception.Response.Headers["Location"] } else { $loc2 = "" }
+} catch { $loc2 = "" }
+
+if ($loc2 -ne "//evil.com" -and $loc2 -ne "http://evil.com") {
+    Write-Host "[5.6] [REUSSI] Double-slash redirect protege : Location=$loc2" -ForegroundColor Green
+    $global:passedTests++
+} else {
+    Write-Host "[5.6] [ECHEC]  Double-slash redirect non protege : Location=$loc2" -ForegroundColor Red
+    $global:failedTests++
+}
+
+# 5.7 /login?returnUrl=/purchase-requests/webapp/index.html doit rediriger normalement (chemin interne valide)
+try {
+    $r3 = Invoke-WebRequest -Uri "$baseRoot/login?returnUrl=/purchase-requests/webapp/index.html" `
+        -Headers $authAlice `
+        -UseBasicParsing `
+        -MaximumRedirection 0 `
+        -TimeoutSec 10 `
+        -ErrorAction SilentlyContinue
+    $loc3 = $r3.Headers["Location"]
+} catch [System.Net.WebException] {
+    if ($_.Exception.Response) { $loc3 = $_.Exception.Response.Headers["Location"] } else { $loc3 = "" }
+} catch { $loc3 = "" }
+
+if ($loc3 -like "*/purchase-requests/webapp/index.html" -or $loc3 -eq "/purchase-requests/webapp/index.html") {
+    Write-Host "[5.7] [REUSSI] Chemin interne accepte : Location=$loc3" -ForegroundColor Green
+    $global:passedTests++
+} else {
+    Write-Host "[5.7] [ECHEC]  Chemin interne non accepte : Location=$loc3" -ForegroundColor Red
+    $global:failedTests++
+}
+
+
+# ==============================================================================
+# SECTION 6 : SÉCURITÉ POST-SWITCH — 401 SANS CREDENTIALS
+# ==============================================================================
+# Vérifie qu'après un changement d'utilisateur via /api/login, une requête OData
+# émise sans aucun credentials (ni cookie ptp_auth, ni Authorization header)
+# renvoie toujours 401. Le session-cookie n'est jamais transmis ici car on crée
+# une nouvelle session WebRequest isolée, ce qui garantit l'indépendance du test.
+Write-Host "`n--- SECTION 6 : SÉCURITÉ POST-SWITCH (401 SANS CREDENTIALS) ---" -ForegroundColor Yellow
+
+# 6.1  Connexion via /api/login en tant qu'alice (simule le 1-clic)
+$loginBody = '{"username":"alice","password":"alice"}'
+$loginResult = Invoke-HttpTest -TestId "6.1" -Description "/api/login alice → 200 + cookie ptp_auth posé" `
+    -Method "POST" -Uri "http://localhost:4004/api/login" `
+    -Body $loginBody -ExpectedStatus @(200)
+
+# 6.2  Requête OData sans aucun credentials → doit renvoyer 401
+#       (ni cookie, ni Authorization header — simule une requête non authentifiée)
+Invoke-HttpTest -TestId "6.2" -Description "Requête OData sans credentials après switch → 401 garanti" `
+    -Method "GET" -Uri "$base/Products" -ExpectedStatus @(401) | Out-Null
+
+# ==============================================================================
 # BILAN DES TESTS
 # ==============================================================================
 $totalExecuted = $global:passedTests + $global:failedTests

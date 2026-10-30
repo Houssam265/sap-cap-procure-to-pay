@@ -18,38 +18,42 @@
     },
     "requires": {
       "auth": {
-        "kind": "mocked",
-        "login_required": true,
-        "users": {
-          "alice": {
-            "password": "alice",
-            "roles": [
-              "Requester"
-            ]
-          },
-          "bob": {
-            "password": "bob",
-            "roles": [
-              "Manager"
-            ]
-          },
-          "carol": {
-            "password": "carol",
-            "roles": [
-              "Warehouse"
-            ]
-          },
-          "admin": {
-            "password": "admin",
-            "roles": [
-              "Admin"
-            ]
-          },
-          "dave": {
-            "password": "dave",
-            "roles": [
-              "Requester"
-            ]
+        "login_required": true
+      },
+      "[development]": {
+        "auth": {
+          "kind": "mocked",
+          "users": {
+            "alice": {
+              "password": "alice",
+              "roles": [
+                "Requester"
+              ]
+            },
+            "bob": {
+              "password": "bob",
+              "roles": [
+                "Manager"
+              ]
+            },
+            "carol": {
+              "password": "carol",
+              "roles": [
+                "Warehouse"
+              ]
+            },
+            "admin": {
+              "password": "admin",
+              "roles": [
+                "Admin"
+              ]
+            },
+            "dave": {
+              "password": "dave",
+              "roles": [
+                "Requester"
+              ]
+            }
           }
         }
       },

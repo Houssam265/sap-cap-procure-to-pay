@@ -93,6 +93,18 @@
                     "route": "PurchaseOrdersObjectPage"
                   }
                 }
+              },
+              "controlConfiguration": {
+                "@com.sap.vocabularies.UI.v1.LineItem": {
+                  "actions": {
+                    "ReceiveOrder": {
+                      "text": "Réceptionner",
+                      "press": ".extension.purchaseorders.ext.controller.ListReportExtension.onReceivePress",
+                      "requiresSelection": true,
+                      "visible": true
+                    }
+                  }
+                }
               }
             }
           }
@@ -105,6 +117,21 @@
             "settings": {
               "contextPath": "/PurchaseOrders"
             }
+          }
+        }
+      }
+    },
+    "extends": {
+      "extensions": {
+        "sap.ui.controllerExtensions": {
+          "sap.fe.templates.ListReport.ListReportController#purchaseorders::PurchaseOrdersList": {
+            "controllerName": "purchaseorders.ext.controller.ListReportExtension"
+          },
+          "sap.fe.templates.ListReport.ListReportController#PurchaseOrdersList": {
+            "controllerName": "purchaseorders.ext.controller.ListReportExtension"
+          },
+          "sap.fe.templates.ListReport.ListReportController": {
+            "controllerName": "purchaseorders.ext.controller.ListReportExtension"
           }
         }
       }
