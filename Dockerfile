@@ -1,7 +1,7 @@
 # ==============================================================================
 # Étape 1 : Builder (Installation optimisée des dépendances de production)
 # ==============================================================================
-FROM node:22-alpine AS builder
+FROM node:25-alpine AS builder
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ RUN npm ci --omit=dev
 # ==============================================================================
 # Étape 2 : Runner (Image d'exécution légère, durcie et non-root)
 # ==============================================================================
-FROM node:22-alpine AS runner
+FROM node:25-alpine AS runner
 
 WORKDIR /app
 
