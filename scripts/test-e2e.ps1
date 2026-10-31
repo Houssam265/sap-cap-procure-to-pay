@@ -23,6 +23,26 @@ $global:passedTests  = 0
 $global:failedTests  = 0
 $global:ignoredTests = 0
 
+# Detection dynamique de la version de PowerShell et support de -SkipHttpErrorCheck
+# En PowerShell 7+ (Core), Invoke-WebRequest lève HttpResponseException sur les codes 4xx/5xx,
+# sauf si -SkipHttpErrorCheck est activé. En Windows PowerShell 5.1, ce paramètre n'existe pas
+# et les codes non-2xx lèvent System.Net.WebException.
+$supportsSkipHttpErrorCheck = $false
+try {
+    $cmd = Get-Command Invoke-WebRequest -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Parameters.ContainsKey('SkipHttpErrorCheck')) {
+        $supportsSkipHttpErrorCheck = $true
+    }
+} catch {
+    $supportsSkipHttpErrorCheck = $false
+}
+
+if ($supportsSkipHttpErrorCheck) {
+    Write-Host "Environnement : PowerShell Core / 7+ (SkipHttpErrorCheck actif)" -ForegroundColor DarkGray
+} else {
+    Write-Host "Environnement : Windows PowerShell 5.1 (gestion WebException active)" -ForegroundColor DarkGray
+}
+
 # Helper pour ignorer un test dépendant
 function Skip-HttpTest {
     param(
@@ -55,6 +75,10 @@ function Invoke-HttpTest {
         TimeoutSec      = 15
     }
 
+    if ($supportsSkipHttpErrorCheck) {
+        $params["SkipHttpErrorCheck"] = $true
+    }
+
     if ($Body) {
         $params["ContentType"] = "application/json"
         if ($Body -is [string]) {
@@ -71,22 +95,34 @@ function Invoke-HttpTest {
         $resp = Invoke-WebRequest @params
         $actualStatus = [int]$resp.StatusCode
         if ($resp.Content) {
-            $data = $resp.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
+            $contentStr = if ($resp.Content -is [byte[]]) {
+                [System.Text.Encoding]::UTF8.GetString($resp.Content)
+            } else {
+                [string]$resp.Content
+            }
+            $data = $contentStr | ConvertFrom-Json -ErrorAction SilentlyContinue
         }
-    } catch [System.Net.WebException] {
+    } catch {
+        # Fallback multi-version :
+        # - Windows PowerShell 5.1 : $_.Exception.Response est HttpWebResponse
+        # - PowerShell 7+ : $_.Exception.Response est HttpResponseMessage (si SkipHttpErrorCheck non utilisé)
         if ($_.Exception.Response) {
             $actualStatus = [int]$_.Exception.Response.StatusCode
+            try {
+                if ($_.Exception.Response.GetResponseStream) {
+                    $stream = $_.Exception.Response.GetResponseStream()
+                    $reader = [System.IO.StreamReader]::new($stream)
+                    $bodyText = $reader.ReadToEnd()
+                    $reader.Dispose()
+                    $data = $bodyText | ConvertFrom-Json -ErrorAction SilentlyContinue
+                }
+            } catch { }
         } else {
             Write-Host "[$TestId] [ECHEC] $Description" -ForegroundColor Red
             Write-Host "       -> Erreur de connexion au serveur ($($_.Message))" -ForegroundColor Red
             $global:failedTests++
             return @{ Success = $false; StatusCode = 0; Data = $null }
         }
-    } catch {
-        Write-Host "[$TestId] [ECHEC] $Description" -ForegroundColor Red
-        Write-Host "       -> Erreur inattendue ($($_.Message))" -ForegroundColor Red
-        $global:failedTests++
-        return @{ Success = $false; StatusCode = 0; Data = $null }
     }
 
     $expectedStr = ($ExpectedStatus -join ' ou ')
@@ -114,9 +150,21 @@ Write-Host "====================================================================
 # Detection dynamique du mode d'authentification et de deploiement
 $authModeInfo = $null
 try {
-    $modeResp = Invoke-WebRequest -Uri "$baseRoot/api/auth-mode" -UseBasicParsing -TimeoutSec 10 -ErrorAction SilentlyContinue
+    $modeParams = @{
+        Uri             = "$baseRoot/api/auth-mode"
+        UseBasicParsing = $true
+        TimeoutSec      = 10
+        ErrorAction     = 'SilentlyContinue'
+    }
+    if ($supportsSkipHttpErrorCheck) { $modeParams["SkipHttpErrorCheck"] = $true }
+    $modeResp = Invoke-WebRequest @modeParams
     if ($modeResp -and $modeResp.StatusCode -eq 200) {
-        $authModeInfo = $modeResp.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
+        $modeContent = if ($modeResp.Content -is [byte[]]) {
+            [System.Text.Encoding]::UTF8.GetString($modeResp.Content)
+        } else {
+            [string]$modeResp.Content
+        }
+        $authModeInfo = $modeContent | ConvertFrom-Json -ErrorAction SilentlyContinue
     }
 } catch {
     $authModeInfo = $null
@@ -501,24 +549,30 @@ if ($meCarol.Success -and $meCarol.Data -and $meCarol.Data.roleLabel -eq "Magasi
 
 # 5.5 Protection open redirect : /login?returnUrl=http://evil.com doit rediriger vers /
 # (le serveur doit retourner 302 vers "/" et non vers l'URL externe)
+$redirParams1 = @{
+    Uri                = "$baseRoot/login?returnUrl=http://evil.com"
+    Headers            = $authAlice
+    UseBasicParsing    = $true
+    MaximumRedirection = 0
+    TimeoutSec         = 10
+    ErrorAction        = 'SilentlyContinue'
+}
+if ($supportsSkipHttpErrorCheck) { $redirParams1["SkipHttpErrorCheck"] = $true }
+
 try {
-    $redirectResp = Invoke-WebRequest -Uri "$baseRoot/login?returnUrl=http://evil.com" `
-        -Headers $authAlice `
-        -UseBasicParsing `
-        -MaximumRedirection 0 `
-        -TimeoutSec 10 `
-        -ErrorAction SilentlyContinue
+    $redirectResp = Invoke-WebRequest @redirParams1
     $redirectStatus = [int]$redirectResp.StatusCode
-    $locationHdr = $redirectResp.Headers["Location"]
-} catch [System.Net.WebException] {
+    $locVal = if ($redirectResp.Headers["Location"]) { $redirectResp.Headers["Location"] } elseif ($redirectResp.Headers.Location) { "$($redirectResp.Headers.Location)" } else { "" }
+    $locationHdr = if ($locVal -is [array]) { $locVal -join '' } else { [string]$locVal }
+} catch {
     if ($_.Exception.Response) {
         $redirectStatus = [int]$_.Exception.Response.StatusCode
-        $locationHdr = $_.Exception.Response.Headers["Location"]
+        $h1 = $_.Exception.Response.Headers
+        $locVal = if ($h1["Location"]) { $h1["Location"] } elseif ($h1.Location) { "$($h1.Location)" } else { "" }
+        $locationHdr = if ($locVal -is [array]) { $locVal -join '' } else { [string]$locVal }
     } else {
         $redirectStatus = 0; $locationHdr = ""
     }
-} catch {
-    $redirectStatus = 0; $locationHdr = ""
 }
 
 $isRedirect = ($redirectStatus -eq 302) -or ($redirectStatus -eq 301)
@@ -537,17 +591,29 @@ if ($isRedirect -and $noOpenRedirect -and $targetIsSafe) {
 }
 
 # 5.6 Protection open redirect : /login?returnUrl=//evil.com doit rediriger vers /
+$redirParams2 = @{
+    Uri                = "$baseRoot/login?returnUrl=//evil.com"
+    Headers            = $authAlice
+    UseBasicParsing    = $true
+    MaximumRedirection = 0
+    TimeoutSec         = 10
+    ErrorAction        = 'SilentlyContinue'
+}
+if ($supportsSkipHttpErrorCheck) { $redirParams2["SkipHttpErrorCheck"] = $true }
+
 try {
-    $r2 = Invoke-WebRequest -Uri "$baseRoot/login?returnUrl=//evil.com" `
-        -Headers $authAlice `
-        -UseBasicParsing `
-        -MaximumRedirection 0 `
-        -TimeoutSec 10 `
-        -ErrorAction SilentlyContinue
-    $loc2 = $r2.Headers["Location"]
-} catch [System.Net.WebException] {
-    if ($_.Exception.Response) { $loc2 = $_.Exception.Response.Headers["Location"] } else { $loc2 = "" }
-} catch { $loc2 = "" }
+    $r2 = Invoke-WebRequest @redirParams2
+    $locVal2 = if ($r2.Headers["Location"]) { $r2.Headers["Location"] } elseif ($r2.Headers.Location) { "$($r2.Headers.Location)" } else { "" }
+    $loc2 = if ($locVal2 -is [array]) { $locVal2 -join '' } else { [string]$locVal2 }
+} catch {
+    if ($_.Exception.Response) {
+        $h2 = $_.Exception.Response.Headers
+        $locVal2 = if ($h2["Location"]) { $h2["Location"] } elseif ($h2.Location) { "$($h2.Location)" } else { "" }
+        $loc2 = if ($locVal2 -is [array]) { $locVal2 -join '' } else { [string]$locVal2 }
+    } else {
+        $loc2 = ""
+    }
+}
 
 if ($loc2 -ne "//evil.com" -and $loc2 -ne "http://evil.com") {
     Write-Host "[5.6] [REUSSI] Double-slash redirect protege : Location=$loc2" -ForegroundColor Green
@@ -558,17 +624,29 @@ if ($loc2 -ne "//evil.com" -and $loc2 -ne "http://evil.com") {
 }
 
 # 5.7 /login?returnUrl=/purchase-requests/webapp/index.html doit rediriger normalement (chemin interne valide)
+$redirParams3 = @{
+    Uri                = "$baseRoot/login?returnUrl=/purchase-requests/webapp/index.html"
+    Headers            = $authAlice
+    UseBasicParsing    = $true
+    MaximumRedirection = 0
+    TimeoutSec         = 10
+    ErrorAction        = 'SilentlyContinue'
+}
+if ($supportsSkipHttpErrorCheck) { $redirParams3["SkipHttpErrorCheck"] = $true }
+
 try {
-    $r3 = Invoke-WebRequest -Uri "$baseRoot/login?returnUrl=/purchase-requests/webapp/index.html" `
-        -Headers $authAlice `
-        -UseBasicParsing `
-        -MaximumRedirection 0 `
-        -TimeoutSec 10 `
-        -ErrorAction SilentlyContinue
-    $loc3 = $r3.Headers["Location"]
-} catch [System.Net.WebException] {
-    if ($_.Exception.Response) { $loc3 = $_.Exception.Response.Headers["Location"] } else { $loc3 = "" }
-} catch { $loc3 = "" }
+    $r3 = Invoke-WebRequest @redirParams3
+    $locVal3 = if ($r3.Headers["Location"]) { $r3.Headers["Location"] } elseif ($r3.Headers.Location) { "$($r3.Headers.Location)" } else { "" }
+    $loc3 = if ($locVal3 -is [array]) { $locVal3 -join '' } else { [string]$locVal3 }
+} catch {
+    if ($_.Exception.Response) {
+        $h3 = $_.Exception.Response.Headers
+        $locVal3 = if ($h3["Location"]) { $h3["Location"] } elseif ($h3.Location) { "$($h3.Location)" } else { "" }
+        $loc3 = if ($locVal3 -is [array]) { $locVal3 -join '' } else { [string]$locVal3 }
+    } else {
+        $loc3 = ""
+    }
+}
 
 if ($loc3 -like "*/purchase-requests/webapp/index.html" -or $loc3 -eq "/purchase-requests/webapp/index.html") {
     Write-Host "[5.7] [REUSSI] Chemin interne accepte : Location=$loc3" -ForegroundColor Green

@@ -1,0 +1,113 @@
+name: Release & Container Publishing
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag de version manuelle (ex: v1.0.0)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ============================================================================
+  # 1. Job publish-ghcr : Construction et publication de l'image OCI sur GHCR
+  # ============================================================================
+  publish-ghcr:
+    name: Build & Push Image to GitHub Container Registry (ghcr.io)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker (lowercase repository)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push container image to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================================================
+  # 2. Section de déploiement SAP BTP (INACTIVE / EN ATTENTE DE SOUSCRIPTION)
+  # ============================================================================
+  # IMPORTANT : Ce bloc est intentionnellement désactivé et documenté ci-dessous.
+  # Aucun compte SAP BTP d'essai n'étant disponible ou provisionné pour ce projet,
+  # le déploiement BTP réel n'est PAS effectué ici et NE DOIT PAS être prétendu fait.
+  #
+  # Architecture cible SAP BTP (lorsque le compte Cloud Foundry / Kyma sera provisionné) :
+  #   - Runtime d'exécution : SAP BTP Cloud Foundry runtime (Node.js buildpack) ou SAP BTP Kyma (Kubernetes/OCI)
+  #   - Persistance : SAP HANA Cloud via le pilote @cap-js/hana (service hana-db HDI container)
+  #   - Sécurité & Identités : SAP Authorization and Trust Management Service (xsuaa) avec plan application
+  #   - Routage & UI : SAP BTP Destination Service + SAP HTML5 Application Repository + Managed App Router
+  #   - Outil de build : Cloud MTA Build Tool (mbt build) produisant un archive .mtar
+  #   - Déploiement : Cloud Foundry CLI (cf deploy ./mta_archives/procure-to-pay.mtar)
+  #
+  # Exemple de structure du job futur :
+  #
+  # deploy-btp:
+  #   name: Deploy to SAP BTP Cloud Foundry (INACTIF)
+  #   needs: publish-ghcr
+  #   runs-on: ubuntu-latest
+  #   if: false # Désactivé - compte BTP non configuré
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup Cloud Foundry CLI
+  #       run: |
+  #         wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | sudo apt-key add -
+  #         echo "deb https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+  #         sudo apt-get update && sudo apt-get install cf8-cli
+  #
+  #     - name: Install Cloud MTA Build Tool (mbt)
+  #       run: npm install -g mbt
+  #
+  #     - name: Install Multiapps CF plugin
+  #       run: cf install-plugin multiapps -f
+  #
+  #     - name: Authenticate to SAP BTP Cloud Foundry
+  #       env:
+  #         CF_API: ${{ secrets.BTP_CF_API }}
+  #         CF_ORG: ${{ secrets.BTP_CF_ORG }}
+  #         CF_SPACE: ${{ secrets.BTP_CF_SPACE }}
+  #         CF_USER: ${{ secrets.BTP_CF_USER }}
+  #         CF_PASSWORD: ${{ secrets.BTP_CF_PASSWORD }}
+  #       run: |
+  #         cf login -a "$CF_API" -u "$CF_USER" -p "$CF_PASSWORD" -o "$CF_ORG" -s "$CF_SPACE"
+  #
+  #     - name: Build MTA archive
+  #       run: mbt build -t gen --mtar procure-to-pay.mtar
+  #
+  #     - name: Deploy MTAR to SAP BTP
+  #       run: cf deploy gen/procure-to-pay.mtar -f

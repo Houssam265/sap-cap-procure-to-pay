@@ -22,20 +22,20 @@ WORKDIR /app
 ENV NODE_ENV=production \
     PORT=4004
 
-# Copie des dépendances de production depuis le builder
-COPY --from=builder /app/node_modules ./node_modules
+# Copie des dépendances de production depuis le builder (propriété node:node dès la copie)
+COPY --chown=node:node --from=builder /app/node_modules ./node_modules
 
-# Copie sélective de tous les fichiers requis à l'exécution
-COPY package.json ./
-COPY _i18n ./_i18n
-COPY db ./db
-COPY srv ./srv
-COPY app ./app
-COPY scripts ./scripts
-COPY docker-entrypoint.sh ./
+# Copie sélective de tous les fichiers requis à l'exécution (propriété node:node dès la copie)
+COPY --chown=node:node package.json ./
+COPY --chown=node:node _i18n ./_i18n
+COPY --chown=node:node db ./db
+COPY --chown=node:node srv ./srv
+COPY --chown=node:node app ./app
+COPY --chown=node:node scripts ./scripts
+COPY --chown=node:node docker-entrypoint.sh ./
 
-# Droits d'exécution et passage à l'utilisateur non-root "node"
-RUN chmod +x docker-entrypoint.sh && chown -R node:node /app
+# Droits d'exécution sur le script d'entrypoint (sans chown -R lent sur node_modules)
+RUN chmod +x docker-entrypoint.sh
 
 USER node
 

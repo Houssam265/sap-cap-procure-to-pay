@@ -1,0 +1,16 @@
+# Normalisation des fins de ligne Git pour la portabilite Linux / Docker / Windows
+* text=auto
+
+# Fichiers critiques pour l'execution dans les conteneurs Linux (LF obligatoire)
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.cds text eol=lf
+*.csv text eol=lf
+
+# Scripts PowerShell (conserves avec compatibilite Windows)
+*.ps1 text eol=crlf

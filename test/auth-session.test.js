@@ -31,6 +31,26 @@ describe("Authentication, Session HMAC & Endpoint Security", () => {
       assert.equal(res.data.roleLabel, "Magasinier");
       assert.ok(res.data.roles.includes("Warehouse"));
     });
+
+    // Test 1.5 : /me avec Basic Auth alice via req.user (chemin CAP, Cas 1 du handler)
+    // Ce test valide que /me s'appuie sur req.user (positionné par le middleware CAP,
+    // quelle que soit la stratégie : mocked, XSUAA, IAS) et non sur le cookie ptp_auth.
+    // Critique : c'est ce chemin qui était cassé en mode production (PTP_DEMO_MODE=false),
+    // où getAuthenticatedUser() retournait null mais CAP renseignait bien req.user.
+    it("1.5 /me via req.user (middleware CAP) retourne 200 sans cookie de session", async () => {
+      // Pas de cookie, auth uniquement via l'en-tête Basic - req.user est positionné par CAP
+      const res = await expectStatus(GET("/me", { auth: { username: "alice", password: "alice" } }), 200);
+      assert.equal(res.data.id, "alice", "id doit correspondre à l'utilisateur authentifié par CAP");
+      assert.ok(Array.isArray(res.data.roles), "roles doit être un tableau");
+      assert.ok(res.data.roles.includes("Requester"), "alice doit avoir le rôle Requester");
+      assert.equal(res.data.roleLabel, "Demandeur");
+      // isDev reflète checkDemoActive(), pas isProduction — valeur booléenne attendue
+      assert.equal(typeof res.data.isDev, "boolean", "isDev doit être un booléen");
+    });
+
+    it("1.6 /me avec identifiants incorrects -> 401 (Basic invalide rejeté par CAP)", async () => {
+      await expectStatus(GET("/me", { auth: { username: "alice", password: "MAUVAIS" } }), 401);
+    });
   });
 
   describe("2. Endpoints /api/switch et /api/login (Session Cookie HMAC)", () => {

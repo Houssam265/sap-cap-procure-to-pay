@@ -45,7 +45,7 @@ async function initDb() {
         db = await cds.connect.to("db");
         await db.run("SELECT 1");
         connected = true;
-        console.log("[init-db] ✓ Connexion à PostgreSQL établie avec succès.");
+        console.log("[init-db] [OK] Connexion a PostgreSQL etablie avec succes.");
         break;
       } catch (err) {
         const isConnError =
@@ -59,7 +59,7 @@ async function initDb() {
 
         if (isConnError && attempt < maxRetries) {
           console.log(
-            `[init-db] ⏳ PostgreSQL injoignable (tentative ${attempt}/${maxRetries}). Nouvelle tentative dans ${retryDelayMs / 1000}s...`
+            `[init-db] [WAIT] PostgreSQL injoignable (tentative ${attempt}/${maxRetries}). Nouvelle tentative dans ${retryDelayMs / 1000}s...`
           );
           await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         } else if (!isConnError) {
@@ -70,8 +70,8 @@ async function initDb() {
 
     if (!connected) {
       console.error(
-        `\n[init-db] ❌ PostgreSQL injoignable à ${host}:${port} après ${maxRetries} tentative(s) : ` +
-          "vérifiez les variables CDS_REQUIRES_DB_* ou lancez l'application avec docker compose up.\n"
+        `\n[init-db] [ERREUR] PostgreSQL injoignable a ${host}:${port} apres ${maxRetries} tentative(s) : ` +
+          "verifiez les variables CDS_REQUIRES_DB_* ou lancez l'application avec docker compose up.\n"
       );
       process.exit(1);
     }
@@ -87,7 +87,7 @@ async function initDb() {
   // 3. Déploiement DDL du schéma (tables, index, vues)
   console.log("[init-db] Déploiement du schéma DDL en cours...");
   await cds.deploy.schema(db, model, {});
-  console.log("[init-db] ✓ Schéma DDL déployé avec succès.");
+  console.log("[init-db] [OK] Schema DDL deploye avec succes.");
 
   // 4. Vérification d'idempotence sur les données existantes
   const hasData = await db
@@ -100,10 +100,10 @@ async function initDb() {
   if (!hasData || forceSeed) {
     console.log("[init-db] Base vide (ou PTP_FORCE_SEED=true) : chargement des données CSV...");
     await cds.deploy.data(db, model);
-    console.log("[init-db] ✓ Données de démonstration chargées avec succès.");
+    console.log("[init-db] [OK] Donnees de demonstration chargees avec succes.");
   } else {
-    console.log("[init-db] ℹ Données existantes détectées dans la base : chargement CSV ignoré.");
-    console.log("[init-db] ✓ Les stocks, commandes et réceptions sont préservés à l'identique.");
+    console.log("[init-db] [INFO] Donnees existantes detectees dans la base : chargement CSV ignore.");
+    console.log("[init-db] [OK] Les stocks, commandes et receptions sont preserves a l'identique.");
   }
 
   console.log("[init-db] ----------------------------------------------------");
@@ -116,6 +116,6 @@ initDb()
     process.exit(0);
   })
   .catch((err) => {
-    console.error("[init-db] ❌ Échec inattendu de l'initialisation :", err.message || err);
+    console.error("[init-db] [ERREUR] Echec inattendu de l'initialisation :", err.message || err);
     process.exit(1);
   });

@@ -157,33 +157,44 @@ function getRoleInfo(userConf) {
   return { roles, roleLabel };
 }
 
-// ── Lecture de l'utilisateur authentifié (cookie HMAC ou Basic Auth) ────────
-// Appelée à chaque requête. Retourne null si :
-//   - on est en production
-//   - un cookie ptp_auth est fourni mais invalide, corrompu ou expiré
-//   - aucun cookie et aucun en-tête Basic Auth valide n'est fourni
-//   - le nom d'utilisateur n'existe pas dans la config
+// ── Lecture de l'utilisateur authentifié via cookie HMAC (mode démo uniquement) ──
+// Gère UNIQUEMENT le cookie ptp_auth en mode démo actif.
+// En dehors du mode démo, l'authentification est entièrement prise en charge par
+// le middleware CAP (basic-auth, jwt-auth, ias-auth) qui positionne req.user.
 
+function getDemoUserFromCookie(req) {
+  if (!checkDemoActive()) return null;
+
+  const configuredUsers = cds.env.requires.auth?.users || {};
+
+  // Cookie de session HMAC (navigateur)
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return null;
+
+  const match = cookieHeader.match(/(?:^|;\s*)ptp_auth=([^;]*)/);
+  if (!match) return null;
+
+  const raw = decodeURIComponent(match[1]);
+  if (raw === "logout" || !raw) return null;
+
+  const username = verifyToken(raw);
+  if (!username) return null;
+
+  const targetKey = Object.keys(configuredUsers).find((k) => k.toLowerCase() === username.toLowerCase());
+  return targetKey || null;
+}
+
+// ── Résolution de l'utilisateur pour le middleware de session (mode démo) ───────
+// Utilisée dans le middleware d'injection Basic, qui permet à CAP de vérifier
+// les rôles via les utilisateurs mock. Uniquement actif en mode démo.
 function getAuthenticatedUser(req) {
   if (!checkDemoActive()) return null;
 
   const configuredUsers = cds.env.requires.auth?.users || {};
 
-  // 1. Authentification par cookie de session HMAC (navigateur)
-  const cookieHeader = req.headers.cookie;
-  if (cookieHeader) {
-    const match = cookieHeader.match(/(?:^|;\s*)ptp_auth=([^;]*)/);
-    if (match) {
-      const raw = decodeURIComponent(match[1]);
-      if (raw === "logout" || !raw) return null;
-
-      const username = verifyToken(raw);
-      if (!username) return null; // Jeton invalide ou expiré -> rejet immédiat
-
-      const targetKey = Object.keys(configuredUsers).find((k) => k.toLowerCase() === username.toLowerCase());
-      return targetKey || null;
-    }
-  }
+  // 1. Cookie HMAC en premier (session navigateur)
+  const cookieUser = getDemoUserFromCookie(req);
+  if (cookieUser) return cookieUser;
 
   // 2. Authentification HTTP Basic standard (tests automatisés, outils API)
   const authHeader = req.headers.authorization;
@@ -355,24 +366,54 @@ cds.on("bootstrap", (app) => {
   });
 
   // ── GET /me ──────────────────────────────────────────────────────────────────
-  app.get("/me", (req, res) => {
-    const authUser = getAuthenticatedUser(req);
-    if (!authUser) {
-      // Pas de WWW-Authenticate → pas de popup navigateur
-      return res.status(401).json({ error: "Non authentifié", isDev: !isProduction });
+  // Endpoint de profil utilisateur. S'appuie sur le middleware d'authentification CAP
+  // (cds.middlewares.auth) qui renseigne req.user quelle que soit la stratégie
+  // (mocked, XSUAA, IAS). Le cookie ptp_auth est converti en amont par le middleware
+  // de session en mode démo actif.
+  app.get(
+    "/me",
+    (req, res, next) => {
+      // Si aucun en-tête d'autorisation n'est présent (ni Basic, ni Bearer, ni cookie démo injecté) :
+      // 401 direct sans WWW-Authenticate pour éviter le popup natif du navigateur
+      if (!req.headers.authorization) {
+        return res.status(401).json({ error: "Non authentifie", isDev: checkDemoActive() });
+      }
+      next();
+    },
+    cds.middlewares.context(),
+    cds.middlewares.auth(),
+    (req, res) => {
+      if (!req.user || !req.user.id) {
+        return res.status(401).json({ error: "Non authentifie", isDev: checkDemoActive() });
+      }
+
+      const configuredUsers = cds.env.requires.auth?.users || {};
+      const userConf = configuredUsers[req.user.id] || {};
+
+      let roles = [];
+      if (userConf.roles) {
+        roles = Array.isArray(userConf.roles) ? userConf.roles : Object.keys(userConf.roles);
+      } else if (req.user.roles) {
+        roles = Array.isArray(req.user.roles) ? req.user.roles : Object.keys(req.user.roles);
+      }
+
+      let roleLabel = "Utilisateur";
+      for (const [r, label] of Object.entries(ROLE_LABELS)) {
+        if (roles.includes(r)) {
+          roleLabel = label;
+          break;
+        }
+      }
+      if (roleLabel === "Utilisateur" && roles.includes("Admin")) roleLabel = "Administrateur";
+
+      res.json({
+        id: req.user.id,
+        roles,
+        roleLabel,
+        isDev: checkDemoActive()
+      });
     }
-
-    const configuredUsers = cds.env.requires.auth?.users || {};
-    const userConf = configuredUsers[authUser] || {};
-    const { roles, roleLabel } = getRoleInfo(userConf);
-
-    res.json({
-      id: authUser,
-      roles,
-      roleLabel,
-      isDev: !isProduction
-    });
-  });
+  );
 
   // ── GET /logout ──────────────────────────────────────────────────────────────
   app.get("/logout", (req, res) => {
@@ -445,12 +486,12 @@ cds.on("served", () => {
   const isDemo = checkDemoActive();
   if (isDemo && isProduction) {
     console.warn("\n========================================================");
-    console.warn("⚠️  ATTENTION : MODE DEMO ACTIF - ne pas utiliser en production !");
-    console.warn("⚠️  Les endpoints /api/switch et /api/login sont opérationnels.");
+    console.warn("[ALERTE] MODE DEMO ACTIF - ne pas utiliser en production !");
+    console.warn("[ALERTE] Les endpoints /api/switch et /api/login sont operationnels.");
     console.warn("========================================================\n");
   }
   console.log(
-    `[server.js] Prêt. isProduction=${isProduction}, demoActive=${isDemo}. ` +
+    `[server.js] Pret. isProduction=${isProduction}, demoActive=${isDemo}. ` +
       `Routes actives : /health, /me, /api/auth-mode, /api/switch, /api/login, /api/logout, /logout, /login`
   );
 });

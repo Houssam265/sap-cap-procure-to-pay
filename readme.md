@@ -1,6 +1,8 @@
-# Getting Started
+# SAP CAP Procure-to-Pay
 
-Welcome to your new CAP project.
+[![CI](https://github.com/Houssam265/sap-cap-procure-to-pay/actions/workflows/ci.yml/badge.svg)](https://github.com/Houssam265/sap-cap-procure-to-pay/actions/workflows/ci.yml)
+
+Application SAP Cloud Application Programming Model (CAP) Node.js pour la gestion du cycle complet des achats (Procure-to-Pay) : demandes d'achat, commandes fournisseurs, réceptions magasin et gestion des stocks.
 
 It contains these folders and files, following our recommended project layout:
 
