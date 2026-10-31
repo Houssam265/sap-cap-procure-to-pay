@@ -1,8 +1,9 @@
-﻿# ==============================================================================
-# Script de test E2E - Procure-to-Pay (Authentification, Rôles, Workflow & Validations)
-# ==============================================================================
+param(
+    [string]$BaseUrl = "http://localhost:4004"
+)
 
-$base = "http://localhost:4004/odata/v4/procurement"
+$baseRoot = $BaseUrl.TrimEnd('/')
+$base = "$baseRoot/odata/v4/procurement"
 
 # Helper pour générer l'en-tête HTTP Basic Authentication
 function Get-AuthHeader([string]$username, [string]$password) {
@@ -109,6 +110,26 @@ function Invoke-HttpTest {
 Write-Host "==============================================================================" -ForegroundColor Cyan
 Write-Host ">>> SUITE DE TESTS PROCURE-TO-PAY : AUTHENTIFICATION, WORKFLOW & VALIDATIONS <<<" -ForegroundColor Cyan
 Write-Host "==============================================================================" -ForegroundColor Cyan
+
+# Detection dynamique du mode d'authentification et de deploiement
+$authModeInfo = $null
+try {
+    $modeResp = Invoke-WebRequest -Uri "$baseRoot/api/auth-mode" -UseBasicParsing -TimeoutSec 10 -ErrorAction SilentlyContinue
+    if ($modeResp -and $modeResp.StatusCode -eq 200) {
+        $authModeInfo = $modeResp.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
+    }
+} catch {
+    $authModeInfo = $null
+}
+
+$isDevOrDemo = $false
+$detectedMode = "indetermine"
+if ($authModeInfo) {
+    $isDevOrDemo = [bool]($authModeInfo.isDev)
+    $detectedMode = [string]($authModeInfo.mode)
+}
+
+Write-Host "Cible : $baseRoot | Mode detecte : $detectedMode | Fonctions demo actives : $isDevOrDemo" -ForegroundColor Cyan
 
 # ==============================================================================
 # SECTION 1 : AUTHENTIFICATION ET RESTRICTIONS DE ROLES (ETAPE 3)
@@ -449,8 +470,6 @@ if ($pr3Id) {
 # ==============================================================================
 Write-Host "`n--- SECTION 5 : /me & OPEN REDIRECT ---" -ForegroundColor Yellow
 
-$baseRoot = "http://localhost:4004"
-
 # 5.1 /me sans credentials -> 401
 Invoke-HttpTest -TestId "5.1" -Description "/me sans credentials renvoie 401" `
     -Method "GET" -Uri "$baseRoot/me" -ExpectedStatus @(401) | Out-Null
@@ -503,7 +522,7 @@ try {
 }
 
 $isRedirect = ($redirectStatus -eq 302) -or ($redirectStatus -eq 301)
-$targetIsSafe = ($locationHdr -eq "/") -or ($locationHdr -eq "http://localhost:4004/")
+$targetIsSafe = ($locationHdr -eq "/") -or ($locationHdr -eq "$baseRoot/") -or ($locationHdr -eq "http://localhost:4004/")
 $noOpenRedirect = $locationHdr -ne "http://evil.com"
 
 if ($isRedirect -and $noOpenRedirect -and $targetIsSafe) {
@@ -561,71 +580,102 @@ if ($loc3 -like "*/purchase-requests/webapp/index.html" -or $loc3 -eq "/purchase
 
 
 # ==============================================================================
-# SECTION 6 : SECURITE POST-SWITCH — 401 SANS CREDENTIALS
+# SECTION 6 : SECURITE POST-SWITCH & ENDPOINTS DE DEMO
 # ==============================================================================
-# Verifie qu'apres un changement via /api/switch, une requete OData sans aucun
-# credentials renvoie toujours 401 (session isolee, ni cookie ni Authorization).
-Write-Host "`n--- SECTION 6 : SECURITE POST-SWITCH (401 SANS CREDENTIALS) ---" -ForegroundColor Yellow
+Write-Host "`n--- SECTION 6 : SECURITE POST-SWITCH & ENDPOINTS DE DEMO ---" -ForegroundColor Yellow
 
-# 6.1  Bascule via /api/switch (simule le 1-clic, sans mot de passe)
-$switchBody = '{"username":"alice"}'
-$switchResult = Invoke-HttpTest -TestId "6.1" -Description "/api/switch alice -> 200 + cookie HMAC pose" `
-    -Method "POST" -Uri "http://localhost:4004/api/switch" `
-    -Body $switchBody -ExpectedStatus @(200)
+if ($isDevOrDemo) {
+    # 6.1  Bascule via /api/switch (simule le 1-clic, sans mot de passe)
+    $switchBody = '{"username":"alice"}'
+    $switchResult = Invoke-HttpTest -TestId "6.1" -Description "/api/switch alice -> 200 + cookie HMAC pose" `
+        -Method "POST" -Uri "$baseRoot/api/switch" `
+        -Body $switchBody -ExpectedStatus @(200)
 
-if ($switchResult.Success -and $switchResult.Data -and $switchResult.Data.user) {
-    Write-Host "       -> user.id=$($switchResult.Data.user.id), isDev=$($switchResult.Data.isDev)" -ForegroundColor Green
+    if ($switchResult.Success -and $switchResult.Data -and $switchResult.Data.user) {
+        Write-Host "       -> user.id=$($switchResult.Data.user.id), isDev=$($switchResult.Data.isDev)" -ForegroundColor Green
+    }
+
+    # 6.2  Requete OData sans aucun credentials -> 401
+    Invoke-HttpTest -TestId "6.2" -Description "Requete OData sans credentials apres switch -> 401 garanti" `
+        -Method "GET" -Uri "$base/Products" -ExpectedStatus @(401) | Out-Null
+} else {
+    Write-Host "Mode production detecte (fail-closed) : verification de la neutralisation des endpoints demo." -ForegroundColor Cyan
+
+    # 6.1  /api/switch doit repondre 404 en production
+    $switchBody = '{"username":"alice"}'
+    Invoke-HttpTest -TestId "6.1" -Description "Production : /api/switch neutralise (404 attendu)" `
+        -Method "POST" -Uri "$baseRoot/api/switch" `
+        -Body $switchBody -ExpectedStatus @(404) | Out-Null
+
+    # 6.2  /api/login doit repondre 404 en production
+    $loginBody = '{"username":"alice","password":"pwd"}'
+    Invoke-HttpTest -TestId "6.2" -Description "Production : /api/login neutralise (404 attendu)" `
+        -Method "POST" -Uri "$baseRoot/api/login" `
+        -Body $loginBody -ExpectedStatus @(404) | Out-Null
 }
-
-# 6.2  Requete OData sans aucun credentials -> 401
-Invoke-HttpTest -TestId "6.2" -Description "Requete OData sans credentials apres switch -> 401 garanti" `
-    -Method "GET" -Uri "$base/Products" -ExpectedStatus @(401) | Out-Null
 
 # ==============================================================================
 # SECTION 7 : DURCISSEMENT — CAS D'ERREUR SUR LES ENDPOINTS D'AUTH
 # ==============================================================================
-Write-Host "`n--- SECTION 7 : DURCISSEMENT (SWITCH, LOGIN MANUEL, COOKIE FALSIFIE) ---" -ForegroundColor Yellow
+Write-Host "`n--- SECTION 7 : DURCISSEMENT (CAS LIMITES & COOKIES FALSIFIES) ---" -ForegroundColor Yellow
 
-$baseRoot = "http://localhost:4004"
+if ($isDevOrDemo) {
+    # 7.1  /api/switch avec utilisateur inconnu -> 401
+    $unknownSwitch = '{"username":"unknown_user_xyz"}'
+    Invoke-HttpTest -TestId "7.1" -Description "/api/switch utilisateur inconnu -> 401" `
+        -Method "POST" -Uri "$baseRoot/api/switch" `
+        -Body $unknownSwitch -ExpectedStatus @(401) | Out-Null
 
-# 7.1  /api/switch avec utilisateur inconnu -> 401
-$unknownSwitch = '{"username":"unknown_user_xyz"}'
-Invoke-HttpTest -TestId "7.1" -Description "/api/switch utilisateur inconnu -> 401" `
-    -Method "POST" -Uri "$baseRoot/api/switch" `
-    -Body $unknownSwitch -ExpectedStatus @(401) | Out-Null
+    # 7.2  /api/switch avec username vide -> 400
+    $emptySwitch = '{"username":""}'
+    Invoke-HttpTest -TestId "7.2" -Description "/api/switch username vide -> 400" `
+        -Method "POST" -Uri "$baseRoot/api/switch" `
+        -Body $emptySwitch -ExpectedStatus @(400) | Out-Null
 
-# 7.2  /api/switch avec username vide -> 400
-$emptySwitch = '{"username":""}'
-Invoke-HttpTest -TestId "7.2" -Description "/api/switch username vide -> 400" `
-    -Method "POST" -Uri "$baseRoot/api/switch" `
-    -Body $emptySwitch -ExpectedStatus @(400) | Out-Null
+    # 7.3  /api/login avec mauvais mot de passe -> 401
+    $badLoginBody = '{"username":"alice","password":"MAUVAIS_MOT_DE_PASSE"}'
+    Invoke-HttpTest -TestId "7.3" -Description "/api/login mauvais mot de passe -> 401" `
+        -Method "POST" -Uri "$baseRoot/api/login" `
+        -Body $badLoginBody -ExpectedStatus @(401) | Out-Null
 
-# 7.3  /api/login avec mauvais mot de passe -> 401
-$badLoginBody = '{"username":"alice","password":"MAUVAIS_MOT_DE_PASSE"}'
-Invoke-HttpTest -TestId "7.3" -Description "/api/login mauvais mot de passe -> 401" `
-    -Method "POST" -Uri "$baseRoot/api/login" `
-    -Body $badLoginBody -ExpectedStatus @(401) | Out-Null
+    # 7.4  /api/login avec identifiant inconnu -> 401
+    $unknownLogin = '{"username":"unknown_xyz","password":"n_importe_quoi"}'
+    Invoke-HttpTest -TestId "7.4" -Description "/api/login utilisateur inconnu -> 401" `
+        -Method "POST" -Uri "$baseRoot/api/login" `
+        -Body $unknownLogin -ExpectedStatus @(401) | Out-Null
 
-# 7.4  /api/login avec identifiant inconnu -> 401
-$unknownLogin = '{"username":"unknown_xyz","password":"n_importe_quoi"}'
-Invoke-HttpTest -TestId "7.4" -Description "/api/login utilisateur inconnu -> 401" `
-    -Method "POST" -Uri "$baseRoot/api/login" `
-    -Body $unknownLogin -ExpectedStatus @(401) | Out-Null
+    # 7.5  Cookie ptp_auth falsifie -> /me repond 401
+    $fakeCookieHdr = @{ "Cookie" = "ptp_auth=YWxpY2V8OTk5OTk5OTk5OXxmYWtlc2ln" }
+    Invoke-HttpTest -TestId "7.5" -Description "/me avec cookie falsifie -> 401 (signature HMAC invalide)" `
+        -Method "GET" -Uri "$baseRoot/me" `
+        -Headers $fakeCookieHdr -ExpectedStatus @(401) | Out-Null
 
-# 7.5  Cookie ptp_auth falsifie -> /me repond 401
-#       On forge un token Base64 qui ne correspond pas a la signature HMAC attendue.
-$fakeCookieHdr = @{ "Cookie" = "ptp_auth=YWxpY2V8OTk5OTk5OTk5OXxmYWtlc2ln" }
-Invoke-HttpTest -TestId "7.5" -Description "/me avec cookie falsifie -> 401 (signature HMAC invalide)" `
-    -Method "GET" -Uri "$baseRoot/me" `
-    -Headers $fakeCookieHdr -ExpectedStatus @(401) | Out-Null
+    # 7.6  Cookie ptp_auth expire -> /me repond 401
+    $expiredToken = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("alice|1|expiredsig")) -replace '\+','-' -replace '/','_' -replace '=',''
+    $expiredCookieHdr = @{ "Cookie" = "ptp_auth=$expiredToken" }
+    Invoke-HttpTest -TestId "7.6" -Description "/me avec cookie expire -> 401" `
+        -Method "GET" -Uri "$baseRoot/me" `
+        -Headers $expiredCookieHdr -ExpectedStatus @(401) | Out-Null
+} else {
+    # En production, les fonctions de switch/login sont 404, on valide la robustesse de /me et cookies ignores
+    Skip-HttpTest -TestId "7.1" -Description "/api/switch utilisateur inconnu" -Reason "Non applicable en production (404 verifie en 6.1)"
+    Skip-HttpTest -TestId "7.2" -Description "/api/switch username vide" -Reason "Non applicable en production (404 verifie en 6.1)"
+    Skip-HttpTest -TestId "7.3" -Description "/api/login mauvais mot de passe" -Reason "Non applicable en production (404 verifie en 6.2)"
+    Skip-HttpTest -TestId "7.4" -Description "/api/login utilisateur inconnu" -Reason "Non applicable en production (404 verifie en 6.2)"
 
-# 7.6  Cookie ptp_auth expire (expiry dans le passe) -> /me repond 401
-#       Payload alice|1|fakesig — expiry = 1 (Unix epoch 1970)
-$expiredToken = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("alice|1|expiredsig")) -replace '\+','-' -replace '/','_' -replace '=',''
-$expiredCookieHdr = @{ "Cookie" = "ptp_auth=$expiredToken" }
-Invoke-HttpTest -TestId "7.6" -Description "/me avec cookie expire -> 401" `
-    -Method "GET" -Uri "$baseRoot/me" `
-    -Headers $expiredCookieHdr -ExpectedStatus @(401) | Out-Null
+    # 7.5  Cookie ptp_auth ignore ou invalide en production -> /me repond 401
+    $fakeCookieHdr = @{ "Cookie" = "ptp_auth=YWxpY2V8OTk5OTk5OTk5OXxmYWtlc2ln" }
+    Invoke-HttpTest -TestId "7.5" -Description "Production : Cookie ptp_auth falsifie ignore -> /me repond 401" `
+        -Method "GET" -Uri "$baseRoot/me" `
+        -Headers $fakeCookieHdr -ExpectedStatus @(401) | Out-Null
+
+    # 7.6  Cookie ptp_auth expire -> /me repond 401
+    $expiredToken = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("alice|1|expiredsig")) -replace '\+','-' -replace '/','_' -replace '=',''
+    $expiredCookieHdr = @{ "Cookie" = "ptp_auth=$expiredToken" }
+    Invoke-HttpTest -TestId "7.6" -Description "Production : Cookie ptp_auth expire -> /me repond 401" `
+        -Method "GET" -Uri "$baseRoot/me" `
+        -Headers $expiredCookieHdr -ExpectedStatus @(401) | Out-Null
+}
 
 # ==============================================================================
 # BILAN DES TESTS

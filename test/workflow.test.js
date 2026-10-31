@@ -1,15 +1,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import cds from "@sap/cds";
-import {
-  authAlice,
-  authBob,
-  authCarol,
-  authAdmin,
-  expectStatus,
-  LAPTOP_ID,
-  PAPER_ID
-} from "./helpers.js";
+import { authAlice, authBob, authCarol, authAdmin, expectStatus, LAPTOP_ID, PAPER_ID } from "./helpers.js";
 
 const { GET, POST, PATCH, DELETE, data } = cds.test(".");
 
@@ -184,11 +176,7 @@ describe("Procure-to-Pay Workflow & Business Rules", () => {
 
     // Rejet avec motif valide -> 200
     const declineRes = await expectStatus(
-      POST(
-        `/odata/v4/procurement/PurchaseRequests(ID=${prId})/decline`,
-        { reason: "Budget annuel épuisé" },
-        authBob
-      ),
+      POST(`/odata/v4/procurement/PurchaseRequests(ID=${prId})/decline`, { reason: "Budget annuel épuisé" }, authBob),
       200
     );
     assert.equal(declineRes.data.status, "REJECTED");
@@ -268,7 +256,10 @@ describe("Procure-to-Pay Workflow & Business Rules", () => {
     const mvtRes = await expectStatus(GET("/odata/v4/procurement/StockMovements", authCarol), 200);
     const laptopMvts = mvtRes.data.value.filter((m) => m.product_ID === LAPTOP_ID);
     assert.ok(laptopMvts.length >= 2, "Au moins 2 mouvements de stock doivent exister pour le produit");
-    assert.ok(laptopMvts.every((m) => m.type === "IN"), "Tous les mouvements doivent être de type IN");
+    assert.ok(
+      laptopMvts.every((m) => m.type === "IN"),
+      "Tous les mouvements doivent être de type IN"
+    );
 
     // 6.5 Tentative de réception sur une commande déjà terminée -> 409
     await expectStatus(

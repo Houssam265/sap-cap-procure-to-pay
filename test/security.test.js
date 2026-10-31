@@ -1,14 +1,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import cds from "@sap/cds";
-import {
-  authAlice,
-  authCarol,
-  authDave,
-  authAdmin,
-  expectStatus,
-  LAPTOP_ID
-} from "./helpers.js";
+import { authAlice, authCarol, authDave, authAdmin, expectStatus, LAPTOP_ID } from "./helpers.js";
 
 const { GET, POST, PATCH, DELETE, data } = cds.test(".");
 

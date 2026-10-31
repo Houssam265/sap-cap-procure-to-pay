@@ -1,0 +1,60 @@
+# ==============================================================================
+# docker-compose.yml — Environnement de démonstration local avec PostgreSQL
+#
+# Sécurité réseau :
+#   - L'application écoute sur 127.0.0.1:4004 uniquement (inaccessible depuis le réseau local).
+#   - Aucun port PostgreSQL n'est exposé sur l'hôte (accessible uniquement depuis le conteneur app).
+#   - Le mode démo est explicitement activé ici (PTP_DEMO_MODE=true et CDS_REQUIRES_AUTH_KIND=mocked).
+# ==============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-procure_to_pay}
+      POSTGRES_USER: ${POSTGRES_USER:-ptp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ptp_secret_password}
+    volumes:
+      - ptp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ptp_user} -d ${POSTGRES_DB:-procure_to_pay}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    # Aucun port exposé sur l'hôte pour garantir l'isolation de la base
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Publié strictement sur l'interface locale loopback
+      - "127.0.0.1:4004:4004"
+    environment:
+      NODE_ENV: production
+      PORT: 4004
+      # Activation explicite et surveillée du mode démo pour l'environnement conteneurisé local
+      PTP_DEMO_MODE: "true"
+      CDS_ENV: "production,demo"
+      CDS_REQUIRES_AUTH_KIND: "mocked"
+      PTP_COOKIE_SECRET: ${PTP_COOKIE_SECRET:-ptp-local-demo-cookie-secret-min-32-chars-long}
+      # File d'attente persistante CAP désactivée (pas de messagerie asynchrone requise)
+      CDS_REQUIRES_QUEUE: "false"
+      # Configuration de la base de données PostgreSQL
+      CDS_REQUIRES_DB_KIND: "postgres"
+      CDS_REQUIRES_DB_CREDENTIALS_HOST: "postgres"
+      CDS_REQUIRES_DB_CREDENTIALS_PORT: "5432"
+      CDS_REQUIRES_DB_CREDENTIALS_USER: ${POSTGRES_USER:-ptp_user}
+      CDS_REQUIRES_DB_CREDENTIALS_PASSWORD: ${POSTGRES_PASSWORD:-ptp_secret_password}
+      CDS_REQUIRES_DB_CREDENTIALS_DATABASE: ${POSTGRES_DB:-procure_to_pay}
+      PTP_FORCE_SEED: "false"
+
+volumes:
+  ptp_pgdata:
+    name: ptp_pgdata

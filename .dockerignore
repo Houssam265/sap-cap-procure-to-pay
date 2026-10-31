@@ -1,0 +1,13 @@
+node_modules
+test
+coverage
+.git
+.vscode
+docs
+*.md
+.env*
+.prettier*
+eslint*
+*.sqlite
+_out
+gen

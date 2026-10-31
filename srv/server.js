@@ -47,6 +47,29 @@ const _cdsConfProd = cds.env.production === true;
 
 const isProduction = _nodeEnvProd || _cdsEnvProd || _profilesProd || _cdsConfProd;
 
+// ── Contrôle d'activation du mode démo ─────────────────────────────────────────
+// Les fonctions de démo (/api/switch, /api/login, cookie ptp_auth) ne s'activent QUE SI :
+//   - Soit en développement / test pur (!isProduction) avec auth mocked
+//   - Soit avec TOUTES les conditions suivantes réunies :
+//       1. Variable explicite PTP_DEMO_MODE === "true"
+//       2. cds.env.requires.auth?.kind === "mocked"
+//       3. Des comptes mock sont réellement configurés dans cds.env.requires.auth.users
+// Sans ces 3 conditions en production, fail-closed total (404 sur les endpoints de démo).
+function checkDemoActive() {
+  const isDemoEnv = process.env.PTP_DEMO_MODE === "true";
+  const authKind = cds.env.requires.auth?.kind;
+  const configuredUsers = cds.env.requires.auth?.users || {};
+  const hasMockUsers = Object.keys(configuredUsers).length > 0;
+
+  if (isDemoEnv && authKind === "mocked" && hasMockUsers) {
+    return true;
+  }
+  if (!isProduction && authKind === "mocked" && hasMockUsers) {
+    return true;
+  }
+  return false;
+}
+
 // ── Secret HMAC ────────────────────────────────────────────────────────────────
 // Lu depuis l'environnement en production, généré en mémoire en développement.
 // Un secret éphémère en dev signifie que toutes les sessions sont invalidées au
@@ -142,7 +165,7 @@ function getRoleInfo(userConf) {
 //   - le nom d'utilisateur n'existe pas dans la config
 
 function getAuthenticatedUser(req) {
-  if (isProduction) return null;
+  if (!checkDemoActive()) return null;
 
   const configuredUsers = cds.env.requires.auth?.users || {};
 
@@ -235,11 +258,22 @@ cds.on("bootstrap", (app) => {
   // Servir les assets statiques sous /app
   app.use("/app", express.static("./app"));
 
+  // ── GET /health ─────────────────────────────────────────────────────────────
+  // Endpoint de santé léger pour Docker HEALTHCHECK (sans auth, sans donnée sensible)
+  app.get("/health", (_req, res) => {
+    res.json({ status: "UP" });
+  });
+
   // ── GET /api/auth-mode ──────────────────────────────────────────────────────
   app.get("/api/auth-mode", (_req, res) => {
+    const isDemo = checkDemoActive();
+    let mode = "production";
+    if (isDemo) {
+      mode = isProduction ? "demo" : "development";
+    }
     res.json({
-      isDev: !isProduction,
-      mode: isProduction ? "production" : "development"
+      isDev: isDemo,
+      mode: mode
     });
   });
 
@@ -248,7 +282,7 @@ cds.on("bootstrap", (app) => {
   // côté client. Le serveur retrouve l'utilisateur dans cds.env.requires.auth.users.
   // Répond 404 en production pour ne laisser aucune surface d'attaque.
   app.post("/api/switch", express.json(), (req, res) => {
-    if (isProduction) {
+    if (!checkDemoActive()) {
       return res.status(404).json({ error: "Endpoint non disponible en production." });
     }
 
@@ -279,7 +313,7 @@ cds.on("bootstrap", (app) => {
   // avec un autre compte". Valide le mot de passe saisi par l'utilisateur.
   // Répond 404 en production.
   app.post("/api/login", express.json(), (req, res) => {
-    if (isProduction) {
+    if (!checkDemoActive()) {
       return res.status(404).json({ error: "Endpoint non disponible en production." });
     }
 
@@ -408,9 +442,16 @@ cds.on("bootstrap", (app) => {
 });
 
 cds.on("served", () => {
+  const isDemo = checkDemoActive();
+  if (isDemo && isProduction) {
+    console.warn("\n========================================================");
+    console.warn("⚠️  ATTENTION : MODE DEMO ACTIF - ne pas utiliser en production !");
+    console.warn("⚠️  Les endpoints /api/switch et /api/login sont opérationnels.");
+    console.warn("========================================================\n");
+  }
   console.log(
-    `[server.js] Prêt. isProduction=${isProduction}. ` +
-      `Routes actives : /me, /api/auth-mode, /api/switch, /api/login, /api/logout, /logout, /login`
+    `[server.js] Prêt. isProduction=${isProduction}, demoActive=${isDemo}. ` +
+      `Routes actives : /health, /me, /api/auth-mode, /api/switch, /api/login, /api/logout, /logout, /login`
   );
 });
 

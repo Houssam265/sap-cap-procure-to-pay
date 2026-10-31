@@ -18,3 +18,11 @@ mta_archives/
 
 # @cap-js/cds-typer
 @cds-models
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Test coverage
+coverage/

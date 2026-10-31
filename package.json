@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
+    "@cap-js/postgres": "^3.1.2",
     "@sap/cds": "^10"
   },
   "devDependencies": {
@@ -24,6 +25,7 @@
       "default_language": "fr"
     },
     "requires": {
+      "queue": false,
       "auth": {
         "login_required": true
       },
@@ -65,6 +67,43 @@
         }
       },
       "[test]": {
+        "auth": {
+          "kind": "mocked",
+          "users": {
+            "alice": {
+              "password": "alice",
+              "roles": [
+                "Requester"
+              ]
+            },
+            "bob": {
+              "password": "bob",
+              "roles": [
+                "Manager"
+              ]
+            },
+            "carol": {
+              "password": "carol",
+              "roles": [
+                "Warehouse"
+              ]
+            },
+            "admin": {
+              "password": "admin",
+              "roles": [
+                "Admin"
+              ]
+            },
+            "dave": {
+              "password": "dave",
+              "roles": [
+                "Requester"
+              ]
+            }
+          }
+        }
+      },
+      "[demo]": {
         "auth": {
           "kind": "mocked",
           "users": {
