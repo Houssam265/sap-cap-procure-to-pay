@@ -547,33 +547,44 @@ if ($meCarol.Success -and $meCarol.Data -and $meCarol.Data.roleLabel -eq "Magasi
     Write-Host "       -> roleLabel=Magasinier confirme" -ForegroundColor Green
 }
 
-# 5.5 Protection open redirect : /login?returnUrl=http://evil.com doit rediriger vers /
-# (le serveur doit retourner 302 vers "/" et non vers l'URL externe)
-$redirParams1 = @{
-    Uri                = "$baseRoot/login?returnUrl=http://evil.com"
-    Headers            = $authAlice
-    UseBasicParsing    = $true
-    MaximumRedirection = 0
-    TimeoutSec         = 10
-    ErrorAction        = 'SilentlyContinue'
-}
-if ($supportsSkipHttpErrorCheck) { $redirParams1["SkipHttpErrorCheck"] = $true }
+# Helper pour tester les redirections sans suivre automatiquement (compatible Windows PowerShell 5.1 et PowerShell 7+)
+function Get-HttpRedirectResponse {
+    param(
+        [string]$Uri,
+        [hashtable]$Headers = @{}
+    )
 
-try {
-    $redirectResp = Invoke-WebRequest @redirParams1
-    $redirectStatus = [int]$redirectResp.StatusCode
-    $locVal = if ($redirectResp.Headers["Location"]) { $redirectResp.Headers["Location"] } elseif ($redirectResp.Headers.Location) { "$($redirectResp.Headers.Location)" } else { "" }
-    $locationHdr = if ($locVal -is [array]) { $locVal -join '' } else { [string]$locVal }
-} catch {
-    if ($_.Exception.Response) {
-        $redirectStatus = [int]$_.Exception.Response.StatusCode
-        $h1 = $_.Exception.Response.Headers
-        $locVal = if ($h1["Location"]) { $h1["Location"] } elseif ($h1.Location) { "$($h1.Location)" } else { "" }
-        $locationHdr = if ($locVal -is [array]) { $locVal -join '' } else { [string]$locVal }
-    } else {
-        $redirectStatus = 0; $locationHdr = ""
+    try {
+        $req = [System.Net.HttpWebRequest]::Create($Uri)
+        $req.AllowAutoRedirect = $false
+        $req.Method = "GET"
+        $req.Timeout = 10000
+        foreach ($k in $Headers.Keys) {
+            $req.Headers[$k] = $Headers[$k]
+        }
+        $resp = $req.GetResponse()
+        $status = [int]$resp.StatusCode
+        $loc = [string]$resp.Headers["Location"]
+        $resp.Close()
+        return @{ StatusCode = $status; Location = $loc }
+    } catch [System.Net.WebException] {
+        if ($_.Response) {
+            $status = [int]$_.Response.StatusCode
+            $loc = [string]$_.Response.Headers["Location"]
+            $_.Response.Close()
+            return @{ StatusCode = $status; Location = $loc }
+        }
+        return @{ StatusCode = 0; Location = "" }
+    } catch {
+        return @{ StatusCode = 0; Location = "" }
     }
 }
+
+# 5.5 Protection open redirect : /login?returnUrl=http://evil.com doit rediriger vers /
+# (le serveur doit retourner 302 vers "/" et non vers l'URL externe)
+$redir1 = Get-HttpRedirectResponse -Uri "$baseRoot/login?returnUrl=http://evil.com" -Headers $authAlice
+$redirectStatus = $redir1.StatusCode
+$locationHdr = $redir1.Location
 
 $isRedirect = ($redirectStatus -eq 302) -or ($redirectStatus -eq 301)
 $targetIsSafe = ($locationHdr -eq "/") -or ($locationHdr -eq "$baseRoot/") -or ($locationHdr -eq "http://localhost:4004/")
@@ -591,68 +602,30 @@ if ($isRedirect -and $noOpenRedirect -and $targetIsSafe) {
 }
 
 # 5.6 Protection open redirect : /login?returnUrl=//evil.com doit rediriger vers /
-$redirParams2 = @{
-    Uri                = "$baseRoot/login?returnUrl=//evil.com"
-    Headers            = $authAlice
-    UseBasicParsing    = $true
-    MaximumRedirection = 0
-    TimeoutSec         = 10
-    ErrorAction        = 'SilentlyContinue'
-}
-if ($supportsSkipHttpErrorCheck) { $redirParams2["SkipHttpErrorCheck"] = $true }
+$redir2 = Get-HttpRedirectResponse -Uri "$baseRoot/login?returnUrl=//evil.com" -Headers $authAlice
+$redirectStatus2 = $redir2.StatusCode
+$loc2 = $redir2.Location
+$isRedirect2 = ($redirectStatus2 -eq 302) -or ($redirectStatus2 -eq 301)
 
-try {
-    $r2 = Invoke-WebRequest @redirParams2
-    $locVal2 = if ($r2.Headers["Location"]) { $r2.Headers["Location"] } elseif ($r2.Headers.Location) { "$($r2.Headers.Location)" } else { "" }
-    $loc2 = if ($locVal2 -is [array]) { $locVal2 -join '' } else { [string]$locVal2 }
-} catch {
-    if ($_.Exception.Response) {
-        $h2 = $_.Exception.Response.Headers
-        $locVal2 = if ($h2["Location"]) { $h2["Location"] } elseif ($h2.Location) { "$($h2.Location)" } else { "" }
-        $loc2 = if ($locVal2 -is [array]) { $locVal2 -join '' } else { [string]$locVal2 }
-    } else {
-        $loc2 = ""
-    }
-}
-
-if ($loc2 -ne "//evil.com" -and $loc2 -ne "http://evil.com") {
-    Write-Host "[5.6] [REUSSI] Double-slash redirect protege : Location=$loc2" -ForegroundColor Green
+if ($isRedirect2 -and $loc2 -ne "//evil.com" -and $loc2 -ne "http://evil.com") {
+    Write-Host "[5.6] [REUSSI] Double-slash redirect protege : Location=$loc2 | Code: $redirectStatus2" -ForegroundColor Green
     $global:passedTests++
 } else {
-    Write-Host "[5.6] [ECHEC]  Double-slash redirect non protege : Location=$loc2" -ForegroundColor Red
+    Write-Host "[5.6] [ECHEC]  Double-slash redirect non protege : Location=$loc2 | Code: $redirectStatus2" -ForegroundColor Red
     $global:failedTests++
 }
 
 # 5.7 /login?returnUrl=/purchase-requests/webapp/index.html doit rediriger normalement (chemin interne valide)
-$redirParams3 = @{
-    Uri                = "$baseRoot/login?returnUrl=/purchase-requests/webapp/index.html"
-    Headers            = $authAlice
-    UseBasicParsing    = $true
-    MaximumRedirection = 0
-    TimeoutSec         = 10
-    ErrorAction        = 'SilentlyContinue'
-}
-if ($supportsSkipHttpErrorCheck) { $redirParams3["SkipHttpErrorCheck"] = $true }
+$redir3 = Get-HttpRedirectResponse -Uri "$baseRoot/login?returnUrl=/purchase-requests/webapp/index.html" -Headers $authAlice
+$redirectStatus3 = $redir3.StatusCode
+$loc3 = $redir3.Location
+$isRedirect3 = ($redirectStatus3 -eq 302) -or ($redirectStatus3 -eq 301)
 
-try {
-    $r3 = Invoke-WebRequest @redirParams3
-    $locVal3 = if ($r3.Headers["Location"]) { $r3.Headers["Location"] } elseif ($r3.Headers.Location) { "$($r3.Headers.Location)" } else { "" }
-    $loc3 = if ($locVal3 -is [array]) { $locVal3 -join '' } else { [string]$locVal3 }
-} catch {
-    if ($_.Exception.Response) {
-        $h3 = $_.Exception.Response.Headers
-        $locVal3 = if ($h3["Location"]) { $h3["Location"] } elseif ($h3.Location) { "$($h3.Location)" } else { "" }
-        $loc3 = if ($locVal3 -is [array]) { $locVal3 -join '' } else { [string]$locVal3 }
-    } else {
-        $loc3 = ""
-    }
-}
-
-if ($loc3 -like "*/purchase-requests/webapp/index.html" -or $loc3 -eq "/purchase-requests/webapp/index.html") {
-    Write-Host "[5.7] [REUSSI] Chemin interne accepte : Location=$loc3" -ForegroundColor Green
+if ($isRedirect3 -and ($loc3 -like "*/purchase-requests/webapp/index.html" -or $loc3 -eq "/purchase-requests/webapp/index.html")) {
+    Write-Host "[5.7] [REUSSI] Chemin interne accepte : Location=$loc3 | Code: $redirectStatus3" -ForegroundColor Green
     $global:passedTests++
 } else {
-    Write-Host "[5.7] [ECHEC]  Chemin interne non accepte : Location=$loc3" -ForegroundColor Red
+    Write-Host "[5.7] [ECHEC]  Chemin interne non accepte : Location=$loc3 | Code: $redirectStatus3" -ForegroundColor Red
     $global:failedTests++
 }
 

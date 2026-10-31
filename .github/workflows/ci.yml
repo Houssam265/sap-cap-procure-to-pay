@@ -87,6 +87,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Configure environment and secrets
+        run: |
+          COOKIE_SECRET=$(openssl rand -hex 32)
+          PG_PASSWORD=$(openssl rand -hex 16)
+          echo "::add-mask::$COOKIE_SECRET"
+          echo "::add-mask::$PG_PASSWORD"
+          cp .env.example .env
+          sed -i "s|change-me-to-a-secure-random-32-char-secret-string|$COOKIE_SECRET|" .env
+          sed -i "s|change_this_postgres_password_in_production|$PG_PASSWORD|" .env
+          echo "PTP_COOKIE_SECRET=$COOKIE_SECRET" >> $GITHUB_ENV
+          echo "POSTGRES_PASSWORD=$PG_PASSWORD" >> $GITHUB_ENV
+
       - name: Start Docker Compose environment (PostgreSQL + App)
         run: docker compose up -d --wait
 
