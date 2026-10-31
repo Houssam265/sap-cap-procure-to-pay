@@ -56,6 +56,10 @@ function Skip-HttpTest {
 }
 
 # Helper d'appel HTTP avec comparaison stricte du code d'état
+# Paramètre -UseRawHttpClient : sous PS7+, utilise System.Net.Http.HttpClient avec
+# désactivation de la négociation d'authentification automatique, ce qui évite que
+# l'en-tête WWW-Authenticate (envoyé par CAP sur les 401 OData) déclenche une exception
+# opaque plutôt que de retourner le code de statut directement.
 function Invoke-HttpTest {
     param(
         [string]$TestId,
@@ -64,64 +68,122 @@ function Invoke-HttpTest {
         [string]$Uri,
         [hashtable]$Headers = @{},
         $Body = $null,
-        [int[]]$ExpectedStatus = @(200)
+        [int[]]$ExpectedStatus = @(200),
+        [switch]$UseRawHttpClient
     )
-
-    $params = @{
-        Uri             = $Uri
-        Method          = $Method
-        Headers         = $Headers
-        UseBasicParsing = $true
-        TimeoutSec      = 15
-    }
-
-    if ($supportsSkipHttpErrorCheck) {
-        $params["SkipHttpErrorCheck"] = $true
-    }
-
-    if ($Body) {
-        $params["ContentType"] = "application/json"
-        if ($Body -is [string]) {
-            $params["Body"] = $Body
-        } else {
-            $params["Body"] = ($Body | ConvertTo-Json -Depth 10)
-        }
-    }
 
     $actualStatus = 0
     $data = $null
 
-    try {
-        $resp = Invoke-WebRequest @params
-        $actualStatus = [int]$resp.StatusCode
-        if ($resp.Content) {
-            $contentStr = if ($resp.Content -is [byte[]]) {
-                [System.Text.Encoding]::UTF8.GetString($resp.Content)
-            } else {
-                [string]$resp.Content
+    # --- Branche HttpClient (PS7+ uniquement, quand demandé) ---
+    # Utilisée pour les requêtes sans credentials ou avec credentials invalides vers des
+    # endpoints OData CAP qui renvoient WWW-Authenticate : PS7 lance une exception de
+    # négociation d'auth au lieu de retourner directement le 401.
+    if ($UseRawHttpClient -and $supportsSkipHttpErrorCheck) {
+        try {
+            $handler = [System.Net.Http.HttpClientHandler]::new()
+            $handler.AllowAutoRedirect       = $false
+            $handler.PreAuthenticate         = $false
+            # Désactive toute négociation automatique d'authentification
+            $handler.UseDefaultCredentials   = $false
+            $handler.Credentials             = $null
+
+            $client = [System.Net.Http.HttpClient]::new($handler)
+            $client.Timeout = [System.TimeSpan]::FromSeconds(15)
+
+            $request = [System.Net.Http.HttpRequestMessage]::new(
+                [System.Net.Http.HttpMethod]::new($Method),
+                [System.Uri]::new($Uri)
+            )
+            foreach ($key in $Headers.Keys) {
+                $request.Headers.TryAddWithoutValidation($key, $Headers[$key]) | Out-Null
             }
-            $data = $contentStr | ConvertFrom-Json -ErrorAction SilentlyContinue
-        }
-    } catch {
-        # Fallback multi-version :
-        # - Windows PowerShell 5.1 : $_.Exception.Response est HttpWebResponse
-        # - PowerShell 7+ : $_.Exception.Response est HttpResponseMessage (si SkipHttpErrorCheck non utilisé)
-        if ($_.Exception.Response) {
-            $actualStatus = [int]$_.Exception.Response.StatusCode
-            try {
-                if ($_.Exception.Response.GetResponseStream) {
-                    $stream = $_.Exception.Response.GetResponseStream()
-                    $reader = [System.IO.StreamReader]::new($stream)
-                    $bodyText = $reader.ReadToEnd()
-                    $reader.Dispose()
-                    $data = $bodyText | ConvertFrom-Json -ErrorAction SilentlyContinue
-                }
-            } catch { }
-        } else {
+            if ($Body) {
+                $bodyStr = if ($Body -is [string]) { $Body } else { $Body | ConvertTo-Json -Depth 10 }
+                $request.Content = [System.Net.Http.StringContent]::new(
+                    $bodyStr,
+                    [System.Text.Encoding]::UTF8,
+                    'application/json'
+                )
+            }
+
+            $respMsg  = $client.SendAsync($request).GetAwaiter().GetResult()
+            $actualStatus = [int]$respMsg.StatusCode
+            $bodyBytes = $respMsg.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+            if ($bodyBytes.Length -gt 0) {
+                $bodyText = [System.Text.Encoding]::UTF8.GetString($bodyBytes)
+                # ConvertFrom-Json lève une exception terminante (System.ArgumentException) sous PS7
+                # sur un corps non-JSON (ex. "Unauthorized") ; -ErrorAction SilentlyContinue ne suffit pas.
+                try { $data = $bodyText | ConvertFrom-Json -ErrorAction SilentlyContinue } catch { $data = $null }
+            }
+            $client.Dispose()
+        } catch {
+            $exType = $_.Exception.GetType().FullName
+            $exMsg  = $_.Exception.Message
+            $innerMsg = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { '' }
             Write-Host "[$TestId] [ECHEC] $Description" -ForegroundColor Red
-            Write-Host "       -> Erreur de connexion au serveur ($($_.Message))" -ForegroundColor Red
+            Write-Host "       -> Erreur HttpClient : $exType | $exMsg$(if($innerMsg){" | Inner: $innerMsg"})" -ForegroundColor Red
             $global:failedTests++
             return @{ Success = $false; StatusCode = 0; Data = $null }
+        }
+    } else {
+        # --- Branche Invoke-WebRequest (PS5.1 et appels normaux PS7) ---
+        $params = @{
+            Uri             = $Uri
+            Method          = $Method
+            Headers         = $Headers
+            UseBasicParsing = $true
+            TimeoutSec      = 15
+        }
+
+        if ($supportsSkipHttpErrorCheck) {
+            $params["SkipHttpErrorCheck"] = $true
+        }
+
+        if ($Body) {
+            $params["ContentType"] = "application/json"
+            if ($Body -is [string]) {
+                $params["Body"] = $Body
+            } else {
+                $params["Body"] = ($Body | ConvertTo-Json -Depth 10)
+            }
+        }
+
+        try {
+            $resp = Invoke-WebRequest @params
+            $actualStatus = [int]$resp.StatusCode
+            if ($resp.Content) {
+                $contentStr = if ($resp.Content -is [byte[]]) {
+                    [System.Text.Encoding]::UTF8.GetString($resp.Content)
+                } else {
+                    [string]$resp.Content
+                }
+                $data = $contentStr | ConvertFrom-Json -ErrorAction SilentlyContinue
+            }
+        } catch {
+            # Fallback multi-version :
+            # - Windows PowerShell 5.1 : $_.Exception.Response est HttpWebResponse
+            # - PowerShell 7+ : $_.Exception.Response peut être HttpResponseMessage
+            if ($_.Exception.Response) {
+                $actualStatus = [int]$_.Exception.Response.StatusCode
+                try {
+                    if ($_.Exception.Response.GetResponseStream) {
+                        $stream = $_.Exception.Response.GetResponseStream()
+                        $reader = [System.IO.StreamReader]::new($stream)
+                        $bodyText = $reader.ReadToEnd()
+                        $reader.Dispose()
+                        $data = $bodyText | ConvertFrom-Json -ErrorAction SilentlyContinue
+                    }
+                } catch { }
+            } else {
+                $exType = $_.Exception.GetType().FullName
+                $exMsg  = $_.Exception.Message
+                $innerMsg = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { '' }
+                Write-Host "[$TestId] [ECHEC] $Description" -ForegroundColor Red
+                Write-Host "       -> Erreur de connexion : $exType | $exMsg$(if($innerMsg){" | Inner: $innerMsg"})" -ForegroundColor Red
+                $global:failedTests++
+                return @{ Success = $false; StatusCode = 0; Data = $null }
+            }
         }
     }
 
@@ -185,13 +247,15 @@ Write-Host "Cible : $baseRoot | Mode detecte : $detectedMode | Fonctions demo ac
 Write-Host "`n--- SECTION 1 : AUTHENTIFICATION & ROLES ---" -ForegroundColor Yellow
 
 # 1.1 Requete sans identifiants
+# -UseRawHttpClient : CAP renvoie WWW-Authenticate sur le 401 OData, ce qui déclenche
+# une négociation d'auth dans PS7 et masque le code de statut sans ce paramètre.
 Invoke-HttpTest -TestId "1.1" -Description "Requete anonyme sans credentials" `
-    -Method "GET" -Uri "$base/Products" -ExpectedStatus @(401) | Out-Null
+    -Method "GET" -Uri "$base/Products" -ExpectedStatus @(401) -UseRawHttpClient | Out-Null
 
 # 1.2 Requete avec mot de passe incorrect
 $badAuth = Get-AuthHeader "alice" "wrongpassword"
 Invoke-HttpTest -TestId "1.2" -Description "Requete avec mot de passe errone" `
-    -Method "GET" -Uri "$base/Products" -Headers $badAuth -ExpectedStatus @(401) | Out-Null
+    -Method "GET" -Uri "$base/Products" -Headers $badAuth -ExpectedStatus @(401) -UseRawHttpClient | Out-Null
 
 # 1.3 Requester tente de lire les commandes d'achat
 Invoke-HttpTest -TestId "1.3" -Description "Requester tente d'acceder aux commandes (/PurchaseOrders)" `
@@ -647,8 +711,9 @@ if ($isDevOrDemo) {
     }
 
     # 6.2  Requete OData sans aucun credentials -> 401
+    # -UseRawHttpClient : même raison qu'en 1.1, CAP envoie WWW-Authenticate sur le 401 OData.
     Invoke-HttpTest -TestId "6.2" -Description "Requete OData sans credentials apres switch -> 401 garanti" `
-        -Method "GET" -Uri "$base/Products" -ExpectedStatus @(401) | Out-Null
+        -Method "GET" -Uri "$base/Products" -ExpectedStatus @(401) -UseRawHttpClient | Out-Null
 } else {
     Write-Host "Mode production detecte (fail-closed) : verification de la neutralisation des endpoints demo." -ForegroundColor Cyan
 
