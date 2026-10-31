@@ -6,10 +6,17 @@
     "@sap/cds": "^10"
   },
   "devDependencies": {
-    "@cap-js/sqlite": "^3"
+    "@cap-js/cds-test": "^1.0.2",
+    "@cap-js/sqlite": "^3",
+    "eslint": "^10.14.0",
+    "prettier": "^3.9.10"
   },
   "scripts": {
-    "start": "cds-serve"
+    "start": "cds-serve",
+    "test": "node --test test/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage test/*.test.js",
+    "lint": "eslint .",
+    "format": "prettier --write ."
   },
   "private": true,
   "cds": {
@@ -21,6 +28,43 @@
         "login_required": true
       },
       "[development]": {
+        "auth": {
+          "kind": "mocked",
+          "users": {
+            "alice": {
+              "password": "alice",
+              "roles": [
+                "Requester"
+              ]
+            },
+            "bob": {
+              "password": "bob",
+              "roles": [
+                "Manager"
+              ]
+            },
+            "carol": {
+              "password": "carol",
+              "roles": [
+                "Warehouse"
+              ]
+            },
+            "admin": {
+              "password": "admin",
+              "roles": [
+                "Admin"
+              ]
+            },
+            "dave": {
+              "password": "dave",
+              "roles": [
+                "Requester"
+              ]
+            }
+          }
+        }
+      },
+      "[test]": {
         "auth": {
           "kind": "mocked",
           "users": {

@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Script de test E2E - Procure-to-Pay (Authentification, Rôles, Workflow & Validations)
 # ==============================================================================
 
@@ -561,24 +561,71 @@ if ($loc3 -like "*/purchase-requests/webapp/index.html" -or $loc3 -eq "/purchase
 
 
 # ==============================================================================
-# SECTION 6 : SÉCURITÉ POST-SWITCH — 401 SANS CREDENTIALS
+# SECTION 6 : SECURITE POST-SWITCH — 401 SANS CREDENTIALS
 # ==============================================================================
-# Vérifie qu'après un changement d'utilisateur via /api/login, une requête OData
-# émise sans aucun credentials (ni cookie ptp_auth, ni Authorization header)
-# renvoie toujours 401. Le session-cookie n'est jamais transmis ici car on crée
-# une nouvelle session WebRequest isolée, ce qui garantit l'indépendance du test.
-Write-Host "`n--- SECTION 6 : SÉCURITÉ POST-SWITCH (401 SANS CREDENTIALS) ---" -ForegroundColor Yellow
+# Verifie qu'apres un changement via /api/switch, une requete OData sans aucun
+# credentials renvoie toujours 401 (session isolee, ni cookie ni Authorization).
+Write-Host "`n--- SECTION 6 : SECURITE POST-SWITCH (401 SANS CREDENTIALS) ---" -ForegroundColor Yellow
 
-# 6.1  Connexion via /api/login en tant qu'alice (simule le 1-clic)
-$loginBody = '{"username":"alice","password":"alice"}'
-$loginResult = Invoke-HttpTest -TestId "6.1" -Description "/api/login alice → 200 + cookie ptp_auth posé" `
-    -Method "POST" -Uri "http://localhost:4004/api/login" `
-    -Body $loginBody -ExpectedStatus @(200)
+# 6.1  Bascule via /api/switch (simule le 1-clic, sans mot de passe)
+$switchBody = '{"username":"alice"}'
+$switchResult = Invoke-HttpTest -TestId "6.1" -Description "/api/switch alice -> 200 + cookie HMAC pose" `
+    -Method "POST" -Uri "http://localhost:4004/api/switch" `
+    -Body $switchBody -ExpectedStatus @(200)
 
-# 6.2  Requête OData sans aucun credentials → doit renvoyer 401
-#       (ni cookie, ni Authorization header — simule une requête non authentifiée)
-Invoke-HttpTest -TestId "6.2" -Description "Requête OData sans credentials après switch → 401 garanti" `
+if ($switchResult.Success -and $switchResult.Data -and $switchResult.Data.user) {
+    Write-Host "       -> user.id=$($switchResult.Data.user.id), isDev=$($switchResult.Data.isDev)" -ForegroundColor Green
+}
+
+# 6.2  Requete OData sans aucun credentials -> 401
+Invoke-HttpTest -TestId "6.2" -Description "Requete OData sans credentials apres switch -> 401 garanti" `
     -Method "GET" -Uri "$base/Products" -ExpectedStatus @(401) | Out-Null
+
+# ==============================================================================
+# SECTION 7 : DURCISSEMENT — CAS D'ERREUR SUR LES ENDPOINTS D'AUTH
+# ==============================================================================
+Write-Host "`n--- SECTION 7 : DURCISSEMENT (SWITCH, LOGIN MANUEL, COOKIE FALSIFIE) ---" -ForegroundColor Yellow
+
+$baseRoot = "http://localhost:4004"
+
+# 7.1  /api/switch avec utilisateur inconnu -> 401
+$unknownSwitch = '{"username":"unknown_user_xyz"}'
+Invoke-HttpTest -TestId "7.1" -Description "/api/switch utilisateur inconnu -> 401" `
+    -Method "POST" -Uri "$baseRoot/api/switch" `
+    -Body $unknownSwitch -ExpectedStatus @(401) | Out-Null
+
+# 7.2  /api/switch avec username vide -> 400
+$emptySwitch = '{"username":""}'
+Invoke-HttpTest -TestId "7.2" -Description "/api/switch username vide -> 400" `
+    -Method "POST" -Uri "$baseRoot/api/switch" `
+    -Body $emptySwitch -ExpectedStatus @(400) | Out-Null
+
+# 7.3  /api/login avec mauvais mot de passe -> 401
+$badLoginBody = '{"username":"alice","password":"MAUVAIS_MOT_DE_PASSE"}'
+Invoke-HttpTest -TestId "7.3" -Description "/api/login mauvais mot de passe -> 401" `
+    -Method "POST" -Uri "$baseRoot/api/login" `
+    -Body $badLoginBody -ExpectedStatus @(401) | Out-Null
+
+# 7.4  /api/login avec identifiant inconnu -> 401
+$unknownLogin = '{"username":"unknown_xyz","password":"n_importe_quoi"}'
+Invoke-HttpTest -TestId "7.4" -Description "/api/login utilisateur inconnu -> 401" `
+    -Method "POST" -Uri "$baseRoot/api/login" `
+    -Body $unknownLogin -ExpectedStatus @(401) | Out-Null
+
+# 7.5  Cookie ptp_auth falsifie -> /me repond 401
+#       On forge un token Base64 qui ne correspond pas a la signature HMAC attendue.
+$fakeCookieHdr = @{ "Cookie" = "ptp_auth=YWxpY2V8OTk5OTk5OTk5OXxmYWtlc2ln" }
+Invoke-HttpTest -TestId "7.5" -Description "/me avec cookie falsifie -> 401 (signature HMAC invalide)" `
+    -Method "GET" -Uri "$baseRoot/me" `
+    -Headers $fakeCookieHdr -ExpectedStatus @(401) | Out-Null
+
+# 7.6  Cookie ptp_auth expire (expiry dans le passe) -> /me repond 401
+#       Payload alice|1|fakesig — expiry = 1 (Unix epoch 1970)
+$expiredToken = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("alice|1|expiredsig")) -replace '\+','-' -replace '/','_' -replace '=',''
+$expiredCookieHdr = @{ "Cookie" = "ptp_auth=$expiredToken" }
+Invoke-HttpTest -TestId "7.6" -Description "/me avec cookie expire -> 401" `
+    -Method "GET" -Uri "$baseRoot/me" `
+    -Headers $expiredCookieHdr -ExpectedStatus @(401) | Out-Null
 
 # ==============================================================================
 # BILAN DES TESTS

@@ -14,7 +14,7 @@
       roleTech: "Requester",
       avatarBg: "linear-gradient(135deg, #0ea5e9, #0284c7)",
       desc: "Création, modification et soumission de ses demandes d'achat.",
-      initial: "A",
+      initial: "A"
     },
     {
       id: "bob",
@@ -23,7 +23,7 @@
       roleTech: "Manager",
       avatarBg: "linear-gradient(135deg, #8b5cf6, #6d28d9)",
       desc: "Approbation / refus des demandes et génération des commandes.",
-      initial: "B",
+      initial: "B"
     },
     {
       id: "carol",
@@ -32,7 +32,7 @@
       roleTech: "Warehouse",
       avatarBg: "linear-gradient(135deg, #f59e0b, #d97706)",
       desc: "Réception des marchandises et consultation des stocks.",
-      initial: "C",
+      initial: "C"
     },
     {
       id: "dave",
@@ -41,7 +41,7 @@
       roleTech: "Requester",
       avatarBg: "linear-gradient(135deg, #06b6d4, #0891b2)",
       desc: "Second demandeur (vérification du cloisonnement des données).",
-      initial: "D",
+      initial: "D"
     },
     {
       id: "admin",
@@ -50,8 +50,8 @@
       roleTech: "Admin",
       avatarBg: "linear-gradient(135deg, #10b981, #059669)",
       desc: "Supervision technique et accès transversal complet.",
-      initial: "★",
-    },
+      initial: "★"
+    }
   ];
 
   var currentUser = null;
@@ -282,13 +282,47 @@
   style.appendChild(document.createTextNode(css));
   document.head.appendChild(style);
 
-  // ── 2. FONCTION DE CONNEXION SÉCURISÉE (1-CLIC) ──────────────────────────────
-  window.ptpSwitchToUser = function (username, password) {
+  // ── 2A. BASCULE RAPIDE (1-CLIC) ─ dev only, SANS mot de passe côté client ───
+  // Appelle POST /api/switch { username } ; le serveur retrouve l'utilisateur
+  // dans cds.env.requires.auth.users et pose un cookie signé HMAC.
+  window.ptpQuickSwitch = function (username) {
     showToast("⏳ Connexion en tant que " + username + "...");
+    fetch("/api/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: username })
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error(data.error || "Utilisateur inconnu ou mode démo inactif.");
+          return data;
+        });
+      })
+      .then(function (data) {
+        showToast("✓ Connecté : " + data.user.id + " (" + data.user.roleLabel + ")");
+        setTimeout(function () {
+          window.location.reload();
+        }, 300);
+      })
+      .catch(function (err) {
+        showToast("⚠ " + err.message);
+      });
+  };
+
+  // ── 2B. CONNEXION MANUELLE ─ formulaire (identifiant + mot de passe) ─────────
+  // Appelle POST /api/login { username, password }. Le serveur vérifie le mot
+  // de passe et renvoie 401 si erroné. Le mot de passe n'est jamais stocké dans
+  // le cookie (uniquement dans le corps de la requête HTTPS).
+  window.ptpManualLogin = function (username, password) {
+    if (!username || !password) {
+      showToast("⚠ Identifiant et mot de passe requis.");
+      return;
+    }
+    showToast("⏳ Vérification des identifiants...");
     fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: username, password: password || username }),
+      body: JSON.stringify({ username: username, password: password })
     })
       .then(function (res) {
         return res.json().then(function (data) {
@@ -315,10 +349,9 @@
   // d'identifiants si la session n'est plus valide.
   window.ptpFullLogout = function () {
     showToast("Déconnexion en cours...");
-    fetch("/api/logout", { method: "POST" })
-      .finally(function () {
-        window.location.href = "/logout";
-      });
+    fetch("/api/logout", { method: "POST" }).finally(function () {
+      window.location.href = "/logout";
+    });
   };
 
   // ── 4. NAVIGATION RETOUR INTELLIGENTE ───────────────────────────────────────
@@ -344,7 +377,6 @@
       var titleEl = document.getElementById("ptp-modal-title-text");
       var descEl = document.getElementById("ptp-modal-desc-text");
       var closeBtn = document.getElementById("ptp-modal-close-btn");
-      var demoBadge = document.getElementById("ptp-demo-badge");
       if (titleEl) {
         titleEl.textContent = isLoginRequired ? "🔒 Connexion requise" : "👥 Changer d'utilisateur";
       }
@@ -410,20 +442,20 @@
       '  <button type="button" class="ptp-nav-btn" onclick="ptpBack()" title="Page précédente">⬅ Retour</button>',
       '  <div class="ptp-divider"></div>',
       '  <div class="ptp-app-title-group">',
-      '    <span class="ptp-app-title">' + escapeHtml(appTitle) + '</span>',
+      '    <span class="ptp-app-title">' + escapeHtml(appTitle) + "</span>",
       '    <span class="ptp-tag-v4">Fiori V4</span>',
-      '  </div>',
-      '</div>',
+      "  </div>",
+      "</div>",
       '<div class="ptp-right">',
       '  <div class="ptp-user-capsule" id="ptp-user-capsule" onclick="ptpOpenModal()" title="Cliquer pour changer de profil">',
       '    <div class="ptp-avatar" id="ptp-avatar" style="background:#0a6ed1;">?</div>',
       '    <span class="ptp-username" id="ptp-username">Chargement...</span>',
       '    <span class="ptp-role-pill" id="ptp-role-pill" style="display:none;"></span>',
-      '  </div>',
+      "  </div>",
       '  <button type="button" class="ptp-switch-btn" id="ptp-switch-btn" onclick="ptpOpenModal()" title="Changer d\'utilisateur" style="display:none;">',
-      '    🔄 Changer',
-      '  </button>',
-      '</div>',
+      "    🔄 Changer",
+      "  </button>",
+      "</div>"
     ].join("");
 
     document.body.insertBefore(header, document.body.firstChild);
@@ -432,7 +464,7 @@
     var overlay = document.createElement("div");
     overlay.id = "ptp-modal-overlay";
     overlay.onclick = function (e) {
-      if (e.target === overlay) ptpCloseModal();
+      if (e.target === overlay) window.ptpCloseModal();
     };
 
     overlay.innerHTML = [
@@ -440,42 +472,46 @@
       '  <div class="ptp-modal-header">',
       '    <div class="ptp-modal-title" id="ptp-modal-title-text">👥 Changer d\'utilisateur</div>',
       '    <button type="button" class="ptp-modal-close" id="ptp-modal-close-btn" onclick="ptpCloseModal()" title="Fermer">✕</button>',
-      '  </div>',
+      "  </div>",
       '  <div class="ptp-modal-body">',
       '    <p class="ptp-modal-desc" id="ptp-modal-desc-text">Sélectionnez un compte du mode démo pour basculer instantanément :</p>',
-      '    <!-- Badge Mode démo : uniquement affiché si isDev=true -->',
+      "    <!-- Badge Mode démo : uniquement affiché si isDev=true -->",
       '    <div id="ptp-demo-badge-wrap" style="display:none;margin-bottom:14px;padding:8px 12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);border-radius:8px;align-items:center;gap:8px;">',
       '      <span style="font-size:15px;">⚗️</span>',
       '      <span style="font-size:12px;font-weight:600;color:#fbbf24;">Mode démo</span>',
       '      <span style="font-size:11px;color:#94a3b8;">— comptes fictifs, développement uniquement. Absent en production.</span>',
-      '    </div>',
+      "    </div>",
       '    <div class="ptp-profiles-grid" id="ptp-profiles-grid" style="display:none;"></div>',
       '    <div class="ptp-manual-toggle">',
       '      <button type="button" class="ptp-link-btn" onclick="toggleManualForm()" id="ptp-real-login-btn">Se connecter avec un autre compte</button>',
       '      <button type="button" class="ptp-link-btn" style="color:#ef4444;" onclick="ptpFullLogout()">Se déconnecter</button>',
-      '    </div>',
+      "    </div>",
       '    <form class="ptp-manual-form" id="ptp-manual-form" onsubmit="handleManualLogin(event)">',
       '      <div class="ptp-input-row">',
       '        <input type="text" id="ptp-input-user" class="ptp-input" placeholder="Identifiant" autocomplete="username" required />',
       '        <input type="password" id="ptp-input-pass" class="ptp-input" placeholder="Mot de passe" autocomplete="current-password" required />',
-      '      </div>',
+      "      </div>",
       '      <button type="submit" class="ptp-submit-btn">Connexion</button>',
-      '    </form>',
-      '  </div>',
-      '</div>',
+      "    </form>",
+      "  </div>",
+      "</div>"
     ].join("");
 
     document.body.appendChild(overlay);
 
     // Fermeture avec la touche Échap
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") ptpCloseModal();
+      if (e.key === "Escape") window.ptpCloseModal();
     });
 
     // ── Lecture du mode (dev/prod) puis chargement de l'utilisateur ──
     fetch("/api/auth-mode", { credentials: "same-origin" })
-      .then(function (r) { return r.ok ? r.json() : { isDev: false }; })
-      .catch(function () { return { isDev: false }; })
+      .then(function (r) {
+        return r.ok ? r.json() : { isDev: false };
+      })
+      .catch(function () {
+        return { isDev: false };
+      })
       .then(function (data) {
         _isDev = !!data.isDev;
         // Afficher ou masquer le bouton "Changer" dans le header
@@ -511,7 +547,7 @@
           avatarEl.style.background = "#475569";
         }
         // Utilisateur déconnecté : ouvrir automatiquement le modal de connexion pour exiger l'authentification
-        ptpOpenModal(true);
+        window.ptpOpenModal(true);
       });
   }
 
@@ -548,21 +584,27 @@
     var grid = document.getElementById("ptp-profiles-grid");
     if (!grid) return;
 
-    var curId = (currentUser && currentUser.id) ? currentUser.id.toLowerCase() : "";
+    var curId = currentUser && currentUser.id ? currentUser.id.toLowerCase() : "";
 
     grid.innerHTML = PROFILES.map(function (p) {
-      var isActive = (p.id.toLowerCase() === curId);
+      var isActive = p.id.toLowerCase() === curId;
       return [
-        '<div class="ptp-profile-item' + (isActive ? ' active' : '') + '" onclick="ptpSwitchToUser(\'' + p.id + '\', \'' + p.id + '\')">',
+        '<div class="ptp-profile-item' + (isActive ? " active" : "") + '" onclick="ptpQuickSwitch(\'' + p.id + "')\">",
         '  <div class="ptp-profile-left">',
-        '    <div class="ptp-p-avatar" style="background:' + p.avatarBg + ';">' + p.initial + '</div>',
+        '    <div class="ptp-p-avatar" style="background:' + p.avatarBg + ';">' + p.initial + "</div>",
         '    <div class="ptp-p-info">',
-        '      <div class="ptp-p-name">' + p.name + ' (' + p.id + ') ' + (isActive ? '<span class="ptp-active-tag">● Actuel</span>' : '') + '</div>',
-        '      <div class="ptp-p-desc">' + p.desc + '</div>',
-        '    </div>',
-        '  </div>',
-        '  <span class="ptp-p-badge">' + p.role + '</span>',
-        '</div>',
+        '      <div class="ptp-p-name">' +
+          p.name +
+          " (" +
+          p.id +
+          ") " +
+          (isActive ? '<span class="ptp-active-tag">● Actuel</span>' : "") +
+          "</div>",
+        '      <div class="ptp-p-desc">' + p.desc + "</div>",
+        "    </div>",
+        "  </div>",
+        '  <span class="ptp-p-badge">' + p.role + "</span>",
+        "</div>"
       ].join("");
     }).join("");
   }
@@ -570,7 +612,7 @@
   window.toggleManualForm = function () {
     var form = document.getElementById("ptp-manual-form");
     if (form) {
-      form.style.display = (form.style.display === "flex") ? "none" : "flex";
+      form.style.display = form.style.display === "flex" ? "none" : "flex";
     }
   };
 
@@ -579,16 +621,14 @@
     var u = document.getElementById("ptp-input-user").value.trim();
     var p = document.getElementById("ptp-input-pass").value;
     if (u && p) {
-      ptpSwitchToUser(u, p);
+      window.ptpManualLogin(u, p);
+    } else {
+      showToast("⚠ Veuillez saisir un identifiant et un mot de passe.");
     }
   };
 
   function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
   if (document.readyState === "loading") {

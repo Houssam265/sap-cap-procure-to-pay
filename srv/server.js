@@ -1,29 +1,109 @@
 /**
  * srv/server.js — Extension du serveur CAP
  *
- * Expose les endpoints :
- *   GET  /me         → { id, roles, roleLabel } pour l'utilisateur authentifié (401 si non connecté)
- *   POST /api/login  → Authentification via cookie de session (sélection 1-clic ou saisie)
- *   POST /api/logout → Invalidation de la session (suppression du cookie)
- *   GET  /logout     → Déconnexion web sécurisée
- *   GET  /login      → Redirection après login avec protection open redirect
+ * Endpoints exposés :
+ *   GET  /me             → { id, roles, roleLabel, isDev } (401 si non connecté)
+ *   GET  /api/auth-mode  → { isDev, mode } — pas de credentials dans la réponse
+ *   POST /api/switch     → [DEV ONLY] bascule vers un compte mock sans mot de passe client
+ *   POST /api/login      → [DEV ONLY] authentification avec identifiant + mot de passe (formulaire manuel)
+ *   POST /api/logout     → Invalidation de la session
+ *   GET  /logout         → Page de confirmation de déconnexion
+ *   GET  /login          → Redirection après login (protection open redirect)
+ *
+ * Sécurité du cookie :
+ *   - Le cookie ptp_auth contient un jeton signé HMAC-SHA256 (username|expiry|sig)
+ *   - Le mot de passe n'est jamais stocké dans le cookie ni renvoyé au client
+ *   - Le cookie est HttpOnly + SameSite=Lax (pas accessible depuis JS)
+ *   - Secret lu depuis PTP_COOKIE_SECRET ou généré aléatoirement au démarrage
+ *
+ * Mode production :
+ *   - /api/switch et /api/login répondent 404
+ *   - getAuthenticatedUser retourne null immédiatement
+ *   - Les comptes mock sont absents (définis uniquement dans le profil [development] de package.json)
+ *   - Le Dockerfile doit définir NODE_ENV=production
  */
 
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import express from "express";
 import cds from "@sap/cds";
+
+// ── Détection du profil de production ─────────────────────────────────────────
+// On considère que c'est la production si l'UNE des conditions suivantes est vraie :
+//   1. NODE_ENV=production  (variable Docker / Heroku / BTP standard)
+//   2. CDS_ENV=production   (variable CDS)
+//   3. cds.env.profiles contient "production"
+//   4. cds.env.production === true
+// Dans le doute (valeur indéterminée), le mode démo est DÉSACTIVÉ.
+const _nodeEnvProd = process.env.NODE_ENV === "production";
+const _cdsEnvProd = process.env.CDS_ENV === "production";
+const _profilesProd = cds.env.profiles
+  ? Array.isArray(cds.env.profiles)
+    ? cds.env.profiles.includes("production")
+    : typeof cds.env.profiles.has === "function"
+      ? cds.env.profiles.has("production")
+      : String(cds.env.profiles).includes("production")
+  : false;
+const _cdsConfProd = cds.env.production === true;
+
+const isProduction = _nodeEnvProd || _cdsEnvProd || _profilesProd || _cdsConfProd;
+
+// ── Secret HMAC ────────────────────────────────────────────────────────────────
+// Lu depuis l'environnement en production, généré en mémoire en développement.
+// Un secret éphémère en dev signifie que toutes les sessions sont invalidées au
+// redémarrage du serveur — comportement intentionnel en développement.
+const COOKIE_SECRET = process.env.PTP_COOKIE_SECRET
+  ? Buffer.from(process.env.PTP_COOKIE_SECRET, "utf8")
+  : randomBytes(32);
+
+const COOKIE_MAX_AGE_SECONDS = 8 * 60 * 60; // 8 heures
 
 const ROLE_LABELS = {
   Requester: "Demandeur",
   Manager: "Manager",
   Warehouse: "Magasinier",
-  Admin: "Administrateur",
+  Admin: "Administrateur"
 };
 
-const isProduction =
-  process.env.NODE_ENV === "production" ||
-  process.env.CDS_ENV === "production" ||
-  (cds.env.profiles && (cds.env.profiles.includes("production") || (typeof cds.env.profiles.has === "function" && cds.env.profiles.has("production")))) ||
-  cds.env.production === true;
+// ── Fonctions HMAC pour le cookie ─────────────────────────────────────────────
+
+function signToken(username) {
+  const expiry = Math.floor(Date.now() / 1000) + COOKIE_MAX_AGE_SECONDS;
+  const payload = `${username}|${expiry}`;
+  const sig = createHmac("sha256", COOKIE_SECRET).update(payload).digest("hex");
+  return Buffer.from(`${payload}|${sig}`).toString("base64url");
+}
+
+function verifyToken(token) {
+  if (!token || token === "logout") return null;
+  try {
+    const decoded = Buffer.from(token, "base64url").toString("utf8");
+    const parts = decoded.split("|");
+    if (parts.length !== 3) return null;
+    const [username, expiry, sig] = parts;
+    const payload = `${username}|${expiry}`;
+    const expectedSig = createHmac("sha256", COOKIE_SECRET).update(payload).digest("hex");
+    // Comparaison à temps constant pour éviter les timing attacks
+    const sigBuf = Buffer.from(sig, "hex");
+    const expectedBuf = Buffer.from(expectedSig, "hex");
+    if (sigBuf.length !== expectedBuf.length) return null;
+    if (!timingSafeEqual(sigBuf, expectedBuf)) return null;
+    if (Math.floor(Date.now() / 1000) > parseInt(expiry, 10)) return null;
+    return username;
+  } catch {
+    return null;
+  }
+}
+
+function setCookieToken(res, username) {
+  const token = signToken(username);
+  res.setHeader("Set-Cookie", `ptp_auth=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SECONDS}`);
+}
+
+function clearCookie(res) {
+  res.setHeader("Set-Cookie", "ptp_auth=logout; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400");
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function isSafeReturnUrl(url) {
   if (!url || typeof url !== "string") return false;
@@ -34,45 +114,77 @@ function isSafeReturnUrl(url) {
   return true;
 }
 
-function getAuthenticatedUser(req) {
-  if (isProduction) {
-    // En production, aucun utilisateur mocké via cookie ptp_auth n'est autorisé
-    return null;
+function getRoleInfo(userConf) {
+  let roles = [];
+  if (Array.isArray(userConf?.roles)) {
+    roles = userConf.roles;
+  } else if (userConf?.roles && typeof userConf.roles === "object") {
+    roles = Object.keys(userConf.roles);
   }
+  let roleLabel = "Utilisateur";
+  for (const [r, label] of Object.entries(ROLE_LABELS)) {
+    if (roles.includes(r)) {
+      roleLabel = label;
+      break;
+    }
+  }
+  if (roleLabel === "Utilisateur" && roles.includes("Admin")) {
+    roleLabel = "Administrateur";
+  }
+  return { roles, roleLabel };
+}
 
+// ── Lecture de l'utilisateur authentifié (cookie HMAC ou Basic Auth) ────────
+// Appelée à chaque requête. Retourne null si :
+//   - on est en production
+//   - un cookie ptp_auth est fourni mais invalide, corrompu ou expiré
+//   - aucun cookie et aucun en-tête Basic Auth valide n'est fourni
+//   - le nom d'utilisateur n'existe pas dans la config
+
+function getAuthenticatedUser(req) {
+  if (isProduction) return null;
+
+  const configuredUsers = cds.env.requires.auth?.users || {};
+
+  // 1. Authentification par cookie de session HMAC (navigateur)
   const cookieHeader = req.headers.cookie;
   if (cookieHeader) {
     const match = cookieHeader.match(/(?:^|;\s*)ptp_auth=([^;]*)/);
     if (match) {
-      const val = decodeURIComponent(match[1]);
-      if (val === "logout" || !val) return null;
-      try {
-        const [u, p] = Buffer.from(val, "base64").toString().split(":");
-        const configuredUsers = cds.env.requires.auth?.users || {};
-        const targetKey = Object.keys(configuredUsers).find(
-          (k) => k.toLowerCase() === (u || "").toLowerCase()
-        );
-        if (targetKey && configuredUsers[targetKey].password === p) {
-          return targetKey;
-        }
-      } catch (e) {
-        return null;
-      }
+      const raw = decodeURIComponent(match[1]);
+      if (raw === "logout" || !raw) return null;
+
+      const username = verifyToken(raw);
+      if (!username) return null; // Jeton invalide ou expiré -> rejet immédiat
+
+      const targetKey = Object.keys(configuredUsers).find((k) => k.toLowerCase() === username.toLowerCase());
+      return targetKey || null;
     }
   }
 
+  // 2. Authentification HTTP Basic standard (tests automatisés, outils API)
   const authHeader = req.headers.authorization;
-  if (authHeader?.match(/^basic/i)) {
+  if (authHeader && /^basic\s+/i.test(authHeader)) {
     try {
-      const [u, p] = Buffer.from(authHeader.slice(6), "base64").toString().split(":");
-      const configuredUsers = cds.env.requires.auth?.users || {};
-      const targetKey = Object.keys(configuredUsers).find(
-        (k) => k.toLowerCase() === (u || "").toLowerCase()
-      );
-      if (targetKey && configuredUsers[targetKey].password === p) {
-        return targetKey;
-      }
-    } catch (e) {
+      const b64 = authHeader.replace(/^basic\s+/i, "").trim();
+      const credentials = Buffer.from(b64, "base64").toString("utf8");
+      const colonIdx = credentials.indexOf(":");
+      if (colonIdx === -1) return null;
+
+      const user = credentials.slice(0, colonIdx);
+      const pass = credentials.slice(colonIdx + 1);
+
+      const targetKey = Object.keys(configuredUsers).find((k) => k.toLowerCase() === user.trim().toLowerCase());
+      if (!targetKey) return null;
+
+      const userConf = configuredUsers[targetKey];
+      const pwdBuf = Buffer.from(userConf.password || "", "utf8");
+      const inputBuf = Buffer.from(pass, "utf8");
+      if (pwdBuf.length !== inputBuf.length) return null;
+      if (!timingSafeEqual(pwdBuf, inputBuf)) return null;
+
+      return targetKey;
+    } catch {
       return null;
     }
   }
@@ -80,21 +192,24 @@ function getAuthenticatedUser(req) {
   return null;
 }
 
+// ── Bootstrap CAP ─────────────────────────────────────────────────────────────
 cds.on("bootstrap", (app) => {
-  // Middleware de session et de protection des applications Fiori
+  // ── Middleware de session ─────────────────────────────────────────────────
   app.use((req, res, next) => {
     const cookieHeader = req.headers.cookie;
-    let cookieAuth = null;
+    let rawCookieVal = null;
     if (cookieHeader) {
-      const match = cookieHeader.match(/(?:^|;\s*)ptp_auth=([^;]*)/);
-      if (match) cookieAuth = decodeURIComponent(match[1]);
+      const m = cookieHeader.match(/(?:^|;\s*)ptp_auth=([^;]*)/);
+      if (m) rawCookieVal = decodeURIComponent(m[1]);
     }
 
     const authUser = getAuthenticatedUser(req);
 
-    if (cookieAuth === "logout") {
+    if (rawCookieVal === "logout") {
+      // Cookie explicitement invalidé — on s'assure qu'aucun Basic ne passe
       delete req.headers.authorization;
-    } else if (authUser && !isProduction) {
+    } else if (authUser) {
+      // Injecter l'en-tête Basic pour que CAP puisse vérifier les rôles
       const configuredUsers = cds.env.requires.auth?.users || {};
       const pwd = configuredUsers[authUser]?.password;
       if (pwd) {
@@ -102,13 +217,12 @@ cds.on("bootstrap", (app) => {
       }
     }
 
-    // Protection des applications UI HTML :
-    // Si un utilisateur non authentifié demande la page HTML d'une application Fiori,
-    // on le redirige vers l'accueil pour qu'il s'identifie via le modal sans déclencher de popup navigateur.
+    // Redirection vers l'accueil si une page Fiori est demandée sans session
     const isAppHtml =
       req.method === "GET" &&
       (req.headers.accept?.includes("text/html") || req.path.endsWith(".html")) &&
-      (req.path.includes("/webapp") || req.path.match(/^\/(purchase-requests|purchase-orders|products|stock-movements)/));
+      (req.path.includes("/webapp") ||
+        req.path.match(/^\/(purchase-requests|purchase-orders|products|stock-movements)/));
 
     if (isAppHtml && !authUser && !isProduction) {
       const returnUrl = req.originalUrl || "/";
@@ -121,148 +235,122 @@ cds.on("bootstrap", (app) => {
   // Servir les assets statiques sous /app
   app.use("/app", express.static("./app"));
 
-  // ── GET /api/auth-mode ────────────────────────────────────────────────────
-  app.get("/api/auth-mode", (req, res) => {
+  // ── GET /api/auth-mode ──────────────────────────────────────────────────────
+  app.get("/api/auth-mode", (_req, res) => {
     res.json({
       isDev: !isProduction,
       mode: isProduction ? "production" : "development"
     });
   });
 
-  // ── POST /api/login ───────────────────────────────────────────────────────
+  // ── POST /api/switch ────────────────────────────────────────────────────────
+  // Mode démo uniquement (dev). Bascule vers un compte mock SANS mot de passe
+  // côté client. Le serveur retrouve l'utilisateur dans cds.env.requires.auth.users.
+  // Répond 404 en production pour ne laisser aucune surface d'attaque.
+  app.post("/api/switch", express.json(), (req, res) => {
+    if (isProduction) {
+      return res.status(404).json({ error: "Endpoint non disponible en production." });
+    }
+
+    const { username } = req.body || {};
+    if (!username || typeof username !== "string") {
+      return res.status(400).json({ error: "Champ 'username' manquant." });
+    }
+
+    const configuredUsers = cds.env.requires.auth?.users || {};
+    const targetKey = Object.keys(configuredUsers).find((k) => k.toLowerCase() === username.trim().toLowerCase());
+
+    if (!targetKey) {
+      return res.status(401).json({ error: "Utilisateur inconnu." });
+    }
+
+    setCookieToken(res, targetKey);
+    const { roles, roleLabel } = getRoleInfo(configuredUsers[targetKey]);
+
+    res.json({
+      ok: true,
+      user: { id: targetKey, roles, roleLabel },
+      isDev: true
+    });
+  });
+
+  // ── POST /api/login ─────────────────────────────────────────────────────────
+  // Mode démo uniquement (dev). Utilisé par le formulaire manuel "Se connecter
+  // avec un autre compte". Valide le mot de passe saisi par l'utilisateur.
+  // Répond 404 en production.
   app.post("/api/login", express.json(), (req, res) => {
-    // Strictement interdit et non disponible en profil de production (répond 404)
     if (isProduction) {
       return res.status(404).json({ error: "Endpoint non disponible en production." });
     }
 
     const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ error: "Identifiant et mot de passe requis." });
+    }
+
     const configuredUsers = cds.env.requires.auth?.users || {};
-    const targetKey = Object.keys(configuredUsers).find(
-      (k) => k.toLowerCase() === (username || "").trim().toLowerCase()
-    );
+    const targetKey = Object.keys(configuredUsers).find((k) => k.toLowerCase() === username.trim().toLowerCase());
     const userConf = targetKey ? configuredUsers[targetKey] : null;
 
-    if (!userConf || userConf.password !== password) {
+    // Validation du mot de passe (comparaison à temps constant)
+    if (!userConf) {
+      return res.status(401).json({ error: "Identifiant ou mot de passe incorrect." });
+    }
+    const pwdBuf = Buffer.from(userConf.password || "", "utf8");
+    const inputBuf = Buffer.from(password, "utf8");
+    const sameLength = pwdBuf.length === inputBuf.length;
+    const pwdMatch = sameLength && timingSafeEqual(pwdBuf, inputBuf);
+    if (!pwdMatch) {
       return res.status(401).json({ error: "Identifiant ou mot de passe incorrect." });
     }
 
-    const token = Buffer.from(`${targetKey}:${password}`).toString("base64");
-    res.setHeader(
-      "Set-Cookie",
-      `ptp_auth=${token}; Path=/; SameSite=Lax; Max-Age=86400`
-    );
-
-    let roles = [];
-    if (Array.isArray(userConf.roles)) {
-      roles = userConf.roles;
-    } else if (userConf.roles && typeof userConf.roles === "object") {
-      roles = Object.keys(userConf.roles);
-    }
-
-    let roleLabel = "Utilisateur";
-    for (const [r, label] of Object.entries(ROLE_LABELS)) {
-      if (roles.includes(r)) {
-        roleLabel = label;
-        break;
-      }
-    }
-    if (roleLabel === "Utilisateur" && roles.includes("Admin")) {
-      roleLabel = "Administrateur";
-    }
+    setCookieToken(res, targetKey);
+    const { roles, roleLabel } = getRoleInfo(userConf);
 
     res.json({
       ok: true,
-      user: {
-        id: username,
-        roles,
-        roleLabel,
-      },
-      isDev: true,
+      user: { id: targetKey, roles, roleLabel },
+      isDev: true
     });
   });
 
-  // ── POST /api/logout ──────────────────────────────────────────────────────
-  app.post("/api/logout", (req, res) => {
-    // On conserve le cookie ptp_auth=logout pendant 24h pour que le navigateur
-    // ne réutilise pas automatiquement son cache Basic Auth
-    res.setHeader(
-      "Set-Cookie",
-      "ptp_auth=logout; Path=/; SameSite=Lax; Max-Age=86400"
-    );
+  // ── POST /api/logout ────────────────────────────────────────────────────────
+  app.post("/api/logout", (_req, res) => {
+    clearCookie(res);
     res.json({ ok: true });
   });
 
-  // ── GET /me ───────────────────────────────────────────────────────────────
+  // ── GET /me ──────────────────────────────────────────────────────────────────
   app.get("/me", (req, res) => {
     const authUser = getAuthenticatedUser(req);
-
     if (!authUser) {
-      // 401 SANS WWW-Authenticate pour ne JAMAIS déclencher la popup native du navigateur
+      // Pas de WWW-Authenticate → pas de popup navigateur
       return res.status(401).json({ error: "Non authentifié", isDev: !isProduction });
     }
 
     const configuredUsers = cds.env.requires.auth?.users || {};
     const userConf = configuredUsers[authUser] || {};
-
-    const assignedRoles = [];
-    if (userConf.roles) {
-      if (Array.isArray(userConf.roles)) {
-        assignedRoles.push(...userConf.roles);
-      } else if (typeof userConf.roles === "object") {
-        assignedRoles.push(...Object.keys(userConf.roles));
-      }
-    }
-
-    let roleLabel = "Utilisateur";
-    for (const [r, label] of Object.entries(ROLE_LABELS)) {
-      if (assignedRoles.includes(r)) {
-        roleLabel = label;
-        break;
-      }
-    }
-    if (roleLabel === "Utilisateur" && assignedRoles.includes("Admin")) {
-      roleLabel = "Administrateur";
-    }
+    const { roles, roleLabel } = getRoleInfo(userConf);
 
     res.json({
       id: authUser,
-      roles: assignedRoles,
+      roles,
       roleLabel,
-      isDev: !isProduction,
+      isDev: !isProduction
     });
   });
 
-  // ── GET /logout ───────────────────────────────────────────────────────────
+  // ── GET /logout ──────────────────────────────────────────────────────────────
   app.get("/logout", (req, res) => {
-    res.setHeader(
-      "Set-Cookie",
-      "ptp_auth=logout; Path=/; SameSite=Lax; Max-Age=86400"
-    );
+    clearCookie(res);
 
-    // Si de nouveaux identifiants valides sont passés :
-    const authHeader = req.headers.authorization;
-    if (authHeader?.match(/^basic/i)) {
-      const [id, pwd] = Buffer.from(authHeader.slice(6), "base64").toString().split(":");
-      const configuredUsers = cds.env.requires.auth?.users || {};
-      const userConf = configuredUsers[id];
-      const fromUser = req.query.from;
-      if (userConf && userConf.password === pwd && (!fromUser || id !== fromUser)) {
-        const token = Buffer.from(`${id}:${pwd}`).toString("base64");
-        res.setHeader("Set-Cookie", `ptp_auth=${token}; Path=/; SameSite=Lax; Max-Age=86400`);
-        const returnUrl = req.query.returnUrl || "/";
-        return res.redirect(302, isSafeReturnUrl(returnUrl) ? returnUrl : "/");
-      }
-    }
-
-    // Réinitialisation explicite Basic Auth natif si demandée
+    // Réinitialisation Basic Auth natif si explicitement demandée
     if (req.query.native === "1") {
       res.status(401);
       res.setHeader("WWW-Authenticate", 'Basic realm="SAP Procure-to-Pay"');
       return res.send("Session Basic réinitialisée");
     }
 
-    // Page de confirmation moderne avec redirection vers l'accueil
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.send(`<!DOCTYPE html>
 <html lang="fr">
@@ -311,7 +399,7 @@ cds.on("bootstrap", (app) => {
 </html>`);
   });
 
-  // ── GET /login ───────────────────────────────────────────────────────────
+  // ── GET /login ───────────────────────────────────────────────────────────────
   app.get("/login", (req, res) => {
     const raw = req.query.returnUrl;
     const safeUrl = isSafeReturnUrl(raw) ? raw : "/";
@@ -320,7 +408,10 @@ cds.on("bootstrap", (app) => {
 });
 
 cds.on("served", () => {
-  console.log("[server.js] Routes /me, /api/login, /api/logout, /logout, /login actives.");
+  console.log(
+    `[server.js] Prêt. isProduction=${isProduction}. ` +
+      `Routes actives : /me, /api/auth-mode, /api/switch, /api/login, /api/logout, /logout, /login`
+  );
 });
 
 export default cds.server;
