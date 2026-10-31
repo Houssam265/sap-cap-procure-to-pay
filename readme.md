@@ -382,4 +382,4 @@ sap-cap-procure-to-pay/
 
 ## 8. Licence
 
-Ce projet est distribué sous licence MIT. Le fichier `LICENSE` sera ajouté dès confirmation du nom complet du titulaire.
+Ce projet est distribué sous licence [MIT](LICENSE) — Copyright (c) 2026 HARISS Houssam.
