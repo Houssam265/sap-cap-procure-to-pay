@@ -122,15 +122,27 @@ Il est conçu pour être exécuté en direct devant un recruteur ou enregistré 
 
 ---
 
+### Étape 7 (Facultative) : Contrôle du Catalogue & Alerte Stock Bas (10 secondes)
+
+- **Acteur** : **Carol** (Magasinier) ou **Admin**
+
+1. Dans le portail d'accueil, ouvrir l'application **Catalogue Produits** (`products`).
+2. Constater le catalogue du magasinier avec le stock actualisé de l'ordinateur portable (`LAPTOP-01` à 17 unités).
+3. Observer l'indicateur critique de stock bas : la souris ergonomique (`MOUSE-01`) apparaît en rouge (`stock < minStock`).
+4. 📸 **Capture à prendre** : `07-catalogue-stock-bas.png`
+
+---
+
 ## 📁 Répertoire des Captures Attendues (`docs/screenshots/`)
 
 Pour finaliser l'illustration visuelle du dépôt, déposez les fichiers d'images nommés exactement comme suit dans le dossier `docs/screenshots/` :
 
-| Nom de fichier                   | Écran / Contenu à capturer                                                            | Rôle actif            |
-| :------------------------------- | :------------------------------------------------------------------------------------ | :-------------------- |
-| `01-portail-accueil.png`         | Portail d'accueil personnalisé avec la barre de navigation et le sélecteur de persona | Non connecté ou Admin |
-| `02-pr-creation-alice.png`       | Demande d'achat créée avec 2 articles multi-fournisseurs et toast de soumission       | Alice (Demandeur)     |
-| `03-pr-approval-bob.png`         | Demande au statut `Approuvée` avec confirmation et boutons d'actions managériaux      | Bob (Manager)         |
-| `04-po-split-supplier.png`       | Liste des commandes d'achat générées et ventilées par fournisseur distinct            | Bob (Manager)         |
-| `05-goods-receipt-carol.png`     | Dialogue de saisie de réception magasin et mise à jour en `Partiellement reçue`       | Carol (Magasinier)    |
-| `06-stock-movements-history.png` | Registre chronologique d'audit des mouvements de stock (`GR-100x`, type `IN`)         | Carol ou Admin        |
+| Nom de fichier                   | Écran / Contenu à capturer                                                                    | Rôle actif            |
+| :------------------------------- | :-------------------------------------------------------------------------------------------- | :-------------------- |
+| `01-portail-accueil.png`         | Portail d'accueil personnalisé avec la barre de navigation et le sélecteur de persona         | Non connecté ou Admin |
+| `02-pr-creation-alice.png`       | Demande d'achat créée avec 2 articles multi-fournisseurs et toast de soumission               | Alice (Demandeur)     |
+| `03-pr-approval-bob.png`         | Demande au statut `Approuvée` avec confirmation et boutons d'actions managériaux              | Bob (Manager)         |
+| `04-po-split-supplier.png`       | Liste des commandes d'achat générées et ventilées par fournisseur distinct                    | Bob (Manager)         |
+| `05-goods-receipt-carol.png`     | Dialogue de saisie de réception magasin et mise à jour en `Partiellement reçue`               | Carol (Magasinier)    |
+| `06-stock-movements-history.png` | Registre chronologique d'audit des mouvements de stock (`GR-100x`, type `IN`)                 | Carol ou Admin        |
+| `07-catalogue-stock-bas.png`     | Catalogue produits : stock à jour (LAPTOP-01 à 17) et alerte de stock bas en rouge (MOUSE-01) | Carol ou Admin        |

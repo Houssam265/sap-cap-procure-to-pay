@@ -324,12 +324,33 @@ _Note de transparence sur les branches_ : Le taux de branches (47.97% sur l'ense
 
 Les captures illustrant chaque étape du cycle métier sont référencées dans le dossier [docs/screenshots/](docs/screenshots/) :
 
-1. [Portail d'accueil personnalisé & Sélecteur de persona](docs/screenshots/01-portail-accueil.png)
-2. [Création et soumission de la demande d'achat (Alice - Demandeur)](docs/screenshots/02-pr-creation-alice.png)
-3. [Approbation managériale et boîte de dialogue de refus (Bob - Manager)](docs/screenshots/03-pr-approval-bob.png)
-4. [Génération automatique des commandes découpées par fournisseur](docs/screenshots/04-po-split-supplier.png)
-5. [Réception magasin partielle / totale et reliquat (Carol - Magasinier)](docs/screenshots/05-goods-receipt-carol.png)
-6. [Audit trail des mouvements de stock et inventaire actualisé](docs/screenshots/06-stock-movements-history.png)
+**1. Portail d'accueil personnalisé & Sélecteur de persona**
+
+![Portail d'accueil personnalisé & Sélecteur de persona](docs/screenshots/01-portail-accueil.png)
+
+**2. Création et soumission de la demande d'achat (Alice - Demandeur)**
+
+![Création et soumission de la demande d'achat (Alice - Demandeur)](docs/screenshots/02-pr-creation-alice.png)
+
+**3. Approbation managériale et boîte de dialogue de refus (Bob - Manager)**
+
+![Approbation managériale et boîte de dialogue de refus (Bob - Manager)](docs/screenshots/03-pr-approval-bob.png)
+
+**4. Génération automatique des commandes découpées par fournisseur**
+
+![Génération automatique des commandes découpées par fournisseur](docs/screenshots/04-po-split-supplier.png)
+
+**5. Réception magasin partielle / totale et reliquat (Carol - Magasinier)**
+
+![Réception magasin partielle / totale et reliquat (Carol - Magasinier)](docs/screenshots/05-goods-receipt-carol.png)
+
+**6. Audit trail des mouvements de stock et inventaire actualisé**
+
+![Audit trail des mouvements de stock et inventaire actualisé](docs/screenshots/06-stock-movements-history.png)
+
+**7. Catalogue : stock à jour et alerte de stock bas (MOUSE-01)**
+
+![Catalogue : stock à jour et alerte de stock bas (MOUSE-01)](docs/screenshots/07-catalogue-stock-bas.png)
 
 > **Démonstration Vidéo** : à renseigner.
 
