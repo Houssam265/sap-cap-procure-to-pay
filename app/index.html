@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
@@ -449,7 +449,7 @@
             "
             onclick="handleLpChipClick()"
             title="Informations utilisateur"
-            >â³ Chargement...</span
+            >⏳ Chargement...</span
           >
           <button
             type="button"
@@ -468,7 +468,7 @@
               transition: all 0.15s;
             "
           >
-            ðŸ”„ Changer
+            🔄 Changer
           </button>
         </div>
       </div>
@@ -510,16 +510,16 @@
             align-items: center;
           "
         >
-          <span style="font-weight: 700; font-size: 16px">ðŸ‘¥ Changer d'utilisateur</span>
+          <span style="font-weight: 700; font-size: 16px">👥 Changer d'utilisateur</span>
           <button
             type="button"
             onclick="toggleHomeSwitcher()"
             style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer"
           >
-            âœ•
+            ✕
           </button>
         </div>
-        <!-- Badge Mode dÃ©mo -->
+        <!-- Badge Mode démo -->
         <div
           id="home-demo-badge"
           style="
@@ -533,13 +533,13 @@
             gap: 8px;
           "
         >
-          <span style="font-size: 15px">âš—ï¸</span>
-          <span style="font-size: 12px; font-weight: 600; color: #fbbf24">Mode dÃ©mo</span>
-          <span style="font-size: 11px; color: #94a3b8">â€” comptes fictifs, dÃ©veloppement uniquement.</span>
+          <span style="font-size: 15px">⚗️</span>
+          <span style="font-size: 12px; font-weight: 600; color: #fbbf24">Mode démo</span>
+          <span style="font-size: 11px; color: #94a3b8">— comptes fictifs, développement uniquement.</span>
         </div>
         <div id="home-demo-profiles" style="padding: 20px 22px; display: none; flex-direction: column; gap: 10px">
           <p style="font-size: 13px; color: #94a3b8; margin-bottom: 6px">
-            Basculez instantanÃ©ment sans blocage de mot de passe :
+            Basculez instantanément sans blocage de mot de passe :
           </p>
           <div
             onclick="loginAs('alice')"
@@ -573,7 +573,7 @@
               >
               <div>
                 <div style="font-weight: 600; font-size: 14px; color: #fff">Alice Martin</div>
-                <div style="font-size: 11px; color: #94a3b8">CrÃ©ation & gestion de ses demandes</div>
+                <div style="font-size: 11px; color: #94a3b8">Création & gestion de ses demandes</div>
               </div>
             </div>
             <span class="role-pill req">Demandeur</span>
@@ -646,8 +646,8 @@
                 >C</span
               >
               <div>
-                <div style="font-weight: 600; font-size: 14px; color: #fff">Carol MagasiniÃ¨re</div>
-                <div style="font-size: 11px; color: #94a3b8">RÃ©ception des marchandises & stocks</div>
+                <div style="font-weight: 600; font-size: 14px; color: #fff">Carol Magasinière</div>
+                <div style="font-size: 11px; color: #94a3b8">Réception des marchandises & stocks</div>
               </div>
             </div>
             <span class="role-pill wh">Magasinier</span>
@@ -717,11 +717,11 @@
                   justify-content: center;
                   font-weight: 700;
                 "
-                >â˜…</span
+                >★</span
               >
               <div>
-                <div style="font-weight: 600; font-size: 14px; color: #fff">Admin SystÃ¨me</div>
-                <div style="font-size: 11px; color: #94a3b8">AccÃ¨s transversal complet</div>
+                <div style="font-weight: 600; font-size: 14px; color: #fff">Admin Système</div>
+                <div style="font-size: 11px; color: #94a3b8">Accès transversal complet</div>
               </div>
             </div>
             <span class="role-pill adm">Admin</span>
@@ -749,7 +749,7 @@
               text-decoration: underline;
             "
           >
-            Se dÃ©connecter
+            Se déconnecter
           </button>
           <button
             type="button"
@@ -775,7 +775,7 @@
       var pendingTargetUrl = null;
       var _homeIsDev = false;
 
-      // DÃ©tecter si on arrive avec un returnUrl (ex: redirection serveur)
+      // Détecter si on arrive avec un returnUrl (ex: redirection serveur)
       var urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get("returnUrl")) {
         pendingTargetUrl = decodeURIComponent(urlParams.get("returnUrl"));
@@ -789,14 +789,14 @@
       }
 
       function toggleHomeSwitcher(targetUrl) {
-        if (!_homeIsDev) return; // le sÃ©lecteur mock n'existe pas en production
+        if (!_homeIsDev) return; // le sélecteur mock n'existe pas en production
         if (targetUrl) pendingTargetUrl = targetUrl;
         var m = document.getElementById("home-switcher-modal");
         if (m) m.style.display = m.style.display === "flex" ? "none" : "flex";
       }
 
-      // Bascule 1-clic via /api/switch (sans mot de passe cÃ´tÃ© client).
-      // UtilisÃ© par le home-switcher modal et les cartes rapides.
+      // Bascule 1-clic via /api/switch (sans mot de passe côté client).
+      // Utilisé par le home-switcher modal et les cartes rapides.
       function loginAs(u) {
         fetch("/api/switch", {
           method: "POST",
@@ -824,13 +824,13 @@
 
       function logoutFromHome() {
         // Invalide le cookie puis redirige vers /logout (page de confirmation
-        // qui mÃ¨ne elle-mÃªme Ã  l'accueil â†’ modale de connexion s'ouvre).
+        // qui mène elle-même à l'accueil → modale de connexion s'ouvre).
         fetch("/api/logout", { method: "POST" }).finally(function () {
           window.location.href = "/logout";
         });
       }
 
-      // Interception des clics sur les cartes d'applications si non connectÃ©
+      // Interception des clics sur les cartes d'applications si non connecté
       document.addEventListener("DOMContentLoaded", function () {
         document.querySelectorAll(".card-app").forEach(function (card) {
           card.addEventListener("click", function (e) {
@@ -875,16 +875,16 @@
               currentLoggedInUser = d;
               if (chipEl)
                 chipEl.innerHTML =
-                  "ðŸ‘¤ <strong>" +
+                  "👤 <strong>" +
                   d.id +
                   '</strong>&nbsp;<span style="opacity:.8;font-size:.7rem;background:rgba(255,255,255,.12);padding:1px 6px;border-radius:10px;">' +
                   (d.roleLabel || "") +
                   "</span>";
-              if (_homeIsDev && btnEl) btnEl.textContent = "ðŸ”„ Changer";
+              if (_homeIsDev && btnEl) btnEl.textContent = "🔄 Changer";
             } else {
               currentLoggedInUser = null;
-              if (chipEl) chipEl.innerHTML = 'ðŸ”’ <span style="opacity:.8;">Non connectÃ©</span>';
-              if (_homeIsDev && btnEl) btnEl.textContent = "ðŸ”‘ Connexion";
+              if (chipEl) chipEl.innerHTML = '🔒 <span style="opacity:.8;">Non connecté</span>';
+              if (_homeIsDev && btnEl) btnEl.textContent = "🔑 Connexion";
               if (_homeIsDev && urlParams.get("loginRequired") === "1") {
                 toggleHomeSwitcher();
               }
@@ -893,7 +893,7 @@
           .catch(function () {
             currentLoggedInUser = null;
             var chipEl = document.getElementById("lp-user-chip");
-            if (chipEl) chipEl.innerHTML = 'ðŸ”’ <span style="opacity:.8;">Non connectÃ©</span>';
+            if (chipEl) chipEl.innerHTML = '🔒 <span style="opacity:.8;">Non connecté</span>';
           });
       })();
     </script>
@@ -902,20 +902,20 @@
       <section class="hero-section">
         <h2>Espace de Pilotage des Achats & Stocks</h2>
         <p>
-          Application de portfolio d'ingÃ©nieur dÃ©montrant l'implÃ©mentation complÃ¨te du cycle Procure-to-Pay : de la
-          demande d'achat Ã  la rÃ©ception de stock en magasin avec contrÃ´les stricts par rÃ´les.
+          Application de portfolio d'ingénieur démontrant l'implémentation complète du cycle Procure-to-Pay : de la
+          demande d'achat à la réception de stock en magasin avec contrôles stricts par rôles.
         </p>
       </section>
 
-      <h3 class="section-title">Applications MÃ©tier Fiori Elements V4</h3>
+      <h3 class="section-title">Applications Métier Fiori Elements V4</h3>
       <div class="grid-apps">
         <!-- App 1: Demandes d'Achat -->
         <a href="/purchase-requests/webapp/index.html" class="card-app pr" id="app-purchase-requests">
           <div>
-            <div class="card-header-icon">ðŸ“‹</div>
+            <div class="card-header-icon">📋</div>
             <h3>Demandes d'Achat</h3>
             <p>
-              CrÃ©ation, saisie des articles, soumission et cycle d'approbation des demandes d'achat avec recalcul
+              Création, saisie des articles, soumission et cycle d'approbation des demandes d'achat avec recalcul
               automatique des totaux.
             </p>
           </div>
@@ -931,11 +931,11 @@
         <!-- App 2: Commandes d'Achat -->
         <a href="/purchase-orders/webapp/index.html" class="card-app po" id="app-purchase-orders">
           <div>
-            <div class="card-header-icon">ðŸ“¦</div>
+            <div class="card-header-icon">📦</div>
             <h3>Commandes d'Achat</h3>
             <p>
-              Gestion des commandes gÃ©nÃ©rÃ©es par fournisseur distinct, suivi des statuts et enregistrement des
-              rÃ©ceptions de marchandises.
+              Gestion des commandes générées par fournisseur distinct, suivi des statuts et enregistrement des
+              réceptions de marchandises.
             </p>
           </div>
           <div class="card-footer">
@@ -950,10 +950,10 @@
         <!-- App 3: Catalogue Produits -->
         <a href="/products/webapp/index.html" class="card-app prod" id="app-products">
           <div>
-            <div class="card-header-icon">ðŸ·ï¸</div>
+            <div class="card-header-icon">🏷️</div>
             <h3>Catalogue & Stock</h3>
             <p>
-              RÃ©fÃ©rentiel produits, gestion des prix, fournisseurs associÃ©s et dÃ©tection visuelle automatique des
+              Référentiel produits, gestion des prix, fournisseurs associés et détection visuelle automatique des
               alertes de stock bas.
             </p>
           </div>
@@ -969,11 +969,11 @@
         <!-- App 4: Mouvements de Stock -->
         <a href="/stock-movements/webapp/index.html" class="card-app sm" id="app-stock-movements">
           <div>
-            <div class="card-header-icon">ðŸ“Š</div>
-            <h3>TraÃ§abilitÃ© des Flux</h3>
+            <div class="card-header-icon">📊</div>
+            <h3>Traçabilité des Flux</h3>
             <p>
-              Journal d'audit immuable en lecture seule retraÃ§ant chaque entrÃ©e ou sortie physique de stock avec sa
-              piÃ¨ce justificative.
+              Journal d'audit immuable en lecture seule retraçant chaque entrée ou sortie physique de stock avec sa
+              pièce justificative.
             </p>
           </div>
           <div class="card-footer">
@@ -986,7 +986,7 @@
         </a>
       </div>
 
-      <h3 class="section-title">Comptes Utilisateurs & Droits d'AccÃ¨s (Basic Auth)</h3>
+      <h3 class="section-title">Comptes Utilisateurs & Droits d'Accès (Basic Auth)</h3>
       <div class="auth-container">
         <div class="auth-grid">
           <!-- Alice -->
@@ -1002,11 +1002,11 @@
             </div>
             <div class="auth-creds">
               <span>alice : alice</span>
-              <span style="font-size: 0.7rem; color: #38bdf8">âš¡ Connecter</span>
+              <span style="font-size: 0.7rem; color: #38bdf8">⚡ Connecter</span>
             </div>
             <p class="auth-role-desc">
-              CrÃ©e, modifie et soumet ses propres demandes d'achat en DRAFT. Aucun accÃ¨s aux commandes ni aux
-              rÃ©ceptions.
+              Crée, modifie et soumet ses propres demandes d'achat en DRAFT. Aucun accès aux commandes ni aux
+              réceptions.
             </p>
           </div>
 
@@ -1023,11 +1023,11 @@
             </div>
             <div class="auth-creds">
               <span>bob : bob</span>
-              <span style="font-size: 0.7rem; color: #38bdf8">âš¡ Connecter</span>
+              <span style="font-size: 0.7rem; color: #38bdf8">⚡ Connecter</span>
             </div>
             <p class="auth-role-desc">
-              Valide ou refuse les demandes soumises. GÃ©nÃ¨re les commandes d'achat par fournisseur. Ne peut pas
-              rÃ©ceptionner.
+              Valide ou refuse les demandes soumises. Génère les commandes d'achat par fournisseur. Ne peut pas
+              réceptionner.
             </p>
           </div>
 
@@ -1044,10 +1044,10 @@
             </div>
             <div class="auth-creds">
               <span>carol : carol</span>
-              <span style="font-size: 0.7rem; color: #38bdf8">âš¡ Connecter</span>
+              <span style="font-size: 0.7rem; color: #38bdf8">⚡ Connecter</span>
             </div>
             <p class="auth-role-desc">
-              RÃ©ceptionne les marchandises (partielles ou totales). Met Ã  jour le stock et consulte l'historique des
+              Réceptionne les marchandises (partielles ou totales). Met à jour le stock et consulte l'historique des
               flux.
             </p>
           </div>
@@ -1065,10 +1065,10 @@
             </div>
             <div class="auth-creds">
               <span>admin : admin</span>
-              <span style="font-size: 0.7rem; color: #38bdf8">âš¡ Connecter</span>
+              <span style="font-size: 0.7rem; color: #38bdf8">⚡ Connecter</span>
             </div>
             <p class="auth-role-desc">
-              Gestion complÃ¨te du catalogue produits et fournisseurs. Soumis Ã  l'intÃ©gritÃ© rÃ©fÃ©rentielle stricte.
+              Gestion complète du catalogue produits et fournisseurs. Soumis à l'intégrité référentielle stricte.
             </p>
           </div>
         </div>
@@ -1077,7 +1077,7 @@
 
     <footer>
       <p>
-        Projet Portfolio SAP Cloud Application Programming Model (CAP) & Fiori Elements V4 &bull; RÃ©alisÃ© sous Node.js
+        Projet Portfolio SAP Cloud Application Programming Model (CAP) & Fiori Elements V4 &bull; Réalisé sous Node.js
         & SQLite in-memory
       </p>
     </footer>
