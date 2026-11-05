@@ -352,7 +352,7 @@ Les captures illustrant chaque étape du cycle métier sont référencées dans 
 
 ![Catalogue : stock à jour et alerte de stock bas (MOUSE-01)](docs/screenshots/07-catalogue-stock-bas.png)
 
-> **Démonstration Vidéo** : à renseigner.
+> **Démonstration Vidéo** : [Voir la démo](https://youtu.be/pcHUSTKH8zg)
 
 ---
 
